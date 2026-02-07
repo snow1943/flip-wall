@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三棱柱（拼装板风格）</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #eee;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            pointer-events: none;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 300px;
+        }
+
+        #ui h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        #ui p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+
+        .controls-hint {
+            font-size: 0.8rem !important;
+            color: #888 !important;
+            margin-top: 15px !important;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h3>三棱柱 - 拼装板风格</h3>
+        <p>由三块独立的圆角矩形板拼接而成</p>
+        <p class="controls-hint">左键拖拽旋转 | 右键拖拽平移 | 滚轮缩放</p>
+    </div>
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls, prismGroup;
+
+        // 尺寸定义
+        // 尺寸定义
+        const UNIT_SIZE = 1.0;
+        // [调整这里] 板子厚度：数值越小越薄
+        const PLATE_THICKNESS = 0.001;
+        // [调整这里] 边缘倒角厚度：让边缘更圆润
+        const BEVEL_THICKNESS = 0.001;
+        // [调整这里] 圆角半径：数值越大圆角越圆
+        // [调整这里] 圆角半径：数值越大圆角越圆
+        const CORNER_RADIUS = 0.3;
+        // [调整这里] 板块额外间距：0 表示紧密贴合
+        const GAP_OFFSET = 0.00;
+        // [调整这里] 板块宽度缩放：1.0 为标准宽度 (如果要无缝拼接请设为 1.0)
+        const PLATE_SCALE = 1.0;
+
+        function init() {
+            // 场景初始化
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // 相机设置
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(3, 2, 4);
+
+            // 渲染器设置
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 控制器设置
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 2.0;
+
+            // 灯光设置
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 8, 5);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.bias = -0.001;
+            scene.add(dirLight);
+
+            const fillLight = new THREE.DirectionalLight(0xbbaaff, 0.4);
+            fillLight.position.set(-5, 2, -5);
+            scene.add(fillLight);
+
+            // 创建三棱柱组
+            prismGroup = new THREE.Group();
+
+            // 颜色定义 (对应之前的 红, 蓝, 黄)
+            // Face 1 (Top): Blue
+            // Face 2 (Right): Yellow
+            // Face 3 (Left): Red
+
+            const colors = [
+                new THREE.Color(0.2, 0.5, 0.9), // Blue
+                new THREE.Color(0.9, 0.8, 0.1), // Yellow
+                new THREE.Color(0.9, 0.2, 0.4)  // Red
+            ];
+
+            // 创建三块板子
+            // 三角形几何参数
+            // 边长 a = UNIT_SIZE
+            // 内切圆半径 r = a / (2 * sqrt(3)) = 1 / 3.464 = 0.2886
+            const apothem = UNIT_SIZE / (2 * Math.sqrt(3));
+
+            // 我们需要将板子放置在离中心 apothem 的距离处
+            // 我们需要将板子放置在离中心 apothem 的距离处
+            // 为了让板子不相交，我们在原本的距离基础上增加一个小间距
+            const distance = apothem - PLATE_THICKNESS / 2 + GAP_OFFSET;
+
+            // 板子几何体
+            // 圆角矩形形状
+            // 为了更明显的缝隙，我们稍微缩小板子的宽度 (原本是 UNIT_SIZE)
+            const PLATE_WIDTH = UNIT_SIZE * PLATE_SCALE;
+            const plateGeometry = createRoundedPlateGeometry(UNIT_SIZE, PLATE_WIDTH, PLATE_THICKNESS, BEVEL_THICKNESS, CORNER_RADIUS);
+
+            for (let i = 0; i < 3; i++) {
+                const material = new THREE.MeshStandardMaterial({
+                    color: colors[i],
+                    roughness: 0.3,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide
+                });
+
+                const plate = new THREE.Mesh(plateGeometry, material);
+                plate.castShadow = true;
+                plate.receiveShadow = true;
+
+                // 计算位置和旋转
+                // 我们在 XZ 平面上构建基础三角形 (Y轴向上)，还是在 XY 平面?
+                // 原代码是沿 X 轴延伸。截面在 YZ 平面。
+                // 角度：
+                // 0度: 指向 Y+ (Top) -> Blue
+                // 120度: 指向 Y- X+ ? (Bottom Right)
+                // 240度: 指向 Y- X- ? (Bottom Left)
+                // 这构成了倒三角? 不，这是正三角 (角朝上)。
+                // 之前的模型是倒三角 (角朝下，顶面平)。
+                // 倒三角的法线方向：
+                // Face 1 (Top): Normal (0, 1, 0) -> Angle 90
+                // Face 2 (Right): Normal (0.866, -0.5, 0) -> Angle -30 (330)
+                // Face 3 (Left): Normal (-0.866, -0.5, 0) -> Angle 210
+
+                // 我们用这三个角度
+                const angles = [Math.PI / 2, -Math.PI / 6, 7 * Math.PI / 6];
+
+                // 旋转板子
+                // 板子默认是在 XY 平面创建的 (extrude along Z)。
+                // 我们需要把它旋转对其法线。
+                // 首先，把板子立起来?
+                // CreateRoundedPlateGeometry 生成的是在 XY 平面的圆角矩形，厚度在 Z。
+                // 我们要让它的 Z 轴指向法线方向 (angles[i])。
+                // 并且，对于 Top 面 (Angle 90)，板子的 长边 应该沿 X 轴 (世界坐标 X)。
+                // 宽边 沿 Z 轴?
+                // 是的，因为棱柱是沿 X 轴延伸的。
+
+                // 复位：Mesh 默认 Z 轴朝前。
+                // 我们要让 Mesh 的 Z 轴 指向 (0, cos(a), sin(a)) ? No, planar normals are in YZ plane.
+                // YZ 平面角度 a.
+                // Normal vector N = (0, sin(a), cos(a)) ? No.
+                // 以前是 YZ 平面截面。X 是轴向。
+                // 所以 Top Face Normal 是 (0, 1, 0).
+
+                const angle = angles[i];
+                const nx = 0;
+                const ny = Math.sin(angle);
+                const nz = Math.cos(angle); // Wait, usually 0 angle is X+ or something.
+                // Let's stick to: Top Face (y=1). Angle = 90 deg in YZ plane?
+                // In YZ plane: Y is up, Z is right. 
+                // Angle 90 -> (0, 1). Correct.
+
+                // Position
+                plate.position.set(
+                    0,
+                    distance * Math.sin(angle),
+                    distance * Math.cos(angle) // using cos for Z component
+                );
+
+                // Rotation
+                // We want the plate's local Z axis to point to Normal (0, ny, nz).
+                // We want the plate's local X axis to point to World X (1, 0, 0).
+                // Plate Geometry is in XY plane. Local Z is (0,0,1).
+                // Initial: Local Z is World Z.
+                // We need to rotate around X axis so that Local Z matches Normal.
+                // Normal is (0, 1, 0) for Top.
+                // Rotate -90 deg around X -> Local Z becomes (0, 1, 0).
+
+                // General formula: rotate around X axis by (angle - 90 deg)? 
+                // Wait.
+                // Angle 90 (Top). We want Z to point Up. 
+                // Initial Z points Front (World Z).
+                // Rotate -90 deg (-PI/2) around World X. Z -> Y. Correct.
+                // Angle = PI/2. Rotation = 0? No.
+                // Rotation = angle - PI/2 ?
+                // If angle = PI/2, Rot = 0? Incorrect.
+                // If angle = PI/2, we need -PI/2.
+                // So Rot = angle + PI ? or -angle?
+
+                // Let's use lookAt.
+                // Place at 0,0,0. lookAt(0, ny, nz).
+                // Object up vector?
+                // Plate X axis should be World X.
+                // object.up = (1, 0, 0)? No, Y is up.
+                // Let's manually set rotation.
+
+                plate.rotation.x = - (angle - Math.PI / 2);
+                // Try: angle=90(PI/2) -> rot = 0. Z points Z. Wrong. We want Z points Y.
+                // Rotate around X.
+                // Positive rotation around X: Y->Z, Z->-Y.
+                // We want Z -> Y. (Negative rotation). -90.
+                // So if target is 90 deg (Y), we rotate -90.
+                // logic: current angle 0 (Z). Target 90 (Y). Diff +90.
+                // Rotation axis is X (Right). 
+                // Rotating +90 around X moves Y to Z.
+                // Rotating -90 around X moves Z to Y.
+                // So we need -90.
+
+                // If target is -30 (330). Bottom Right.
+                // Z -> (0, -0.5, 0.866).
+                // Angle from Z axis to Normal vector in YZ plane.
+                // Z axis is angle 0. Y is 90.
+                // Target is -30 (relative to X? No relative to Z? Who knows).
+                // Let's define angle `theta` from Z axis (0) increasing towards Y (90).
+                // Top: theta = 90.
+                // Bottom Right: theta = -30.
+                // Bottom Left: theta = 210 (-150).
+
+                // Rotation amount = theta.
+                // Positive X rotation: Y->Z. This decreases theta (Y is 90, Z is 0).
+                // So Rotation X = -theta.
+
+                plate.rotation.x = -angle;
+
+                // Need to verify standard angles. 
+                // In Math.sin/cos(angle):
+                // If I use (0, sin, cos), then 0 deg is (0, 0, 1) i.e. Z axis.
+                // Top: (0, 1, 0) -> sin=1, cos=0 -> angle = 90.
+                // Right: (0, -0.5, 0.866) ? 
+                // Normal for Right Face (330 deg): 
+                // It faces somewhere down and right.
+                // Tri Vertices (YZ): (0, -r), (w/2, h), (-w/2, h). (Inverted triangle).
+                // Let's stick to the visual:
+                // One face is Top. (Y+)
+                // One face is Bottom-Right.
+                // One face is Bottom-Left.
+
+                // Top Face Normal: (0, 1, 0). Angle from Z: 90. -> Rot: -90.
+                // Bottom Right Normal: Angle -30. -> Rot: 30.
+                // Bottom Left Normal: Angle 210 (or -150). -> Rot: 150.
+
+                // My clean angles array:
+                // Top: Math.PI/2.
+                // Right: -Math.PI/6.
+                // Left: -5*Math.PI/6.
+
+                const viewingAngles = [Math.PI / 2, -Math.PI / 6, -5 * Math.PI / 6];
+                const currentAngle = viewingAngles[i];
+
+                // Position recalculation
+                // Radial vector from (0,0) to face center.
+                // r = distance.
+                // y = r * sin(theta)
+                // z = r * cos(theta) (Since theta is from Z axis towards Y)
+
+                // Wait, standard 2D polar: x=rcos, y=rsin. (Angle from X).
+                // Here we deal with YZ plane. Let Z be "X-like" axis?
+                // If Z is 0 deg:
+                // Y = r sin(theta). Z = r cos(theta).
+                // Top (90): Y=r, Z=0. Correct.
+                // Right (-30): Y = -0.5r, Z = 0.866r. Correct.
+
+                plate.position.set(0, distance * Math.sin(currentAngle), distance * Math.cos(currentAngle));
+                plate.rotation.x = -currentAngle;
+
+                prismGroup.add(plate);
+            }
+
+            scene.add(prismGroup);
+
+            // 辅助
+            // const axesHelper = new THREE.AxesHelper(2);
+            // scene.add(axesHelper);
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
+            // 在 XY 平面创建一个圆角矩形，然后挤压 Z
+            /* 
+               注意：因为我们最终是沿 X 轴延伸的三棱柱，
+               这里的 "width" 应该是三棱柱的长度 (Unit Size)
+               这里的 "height" 应该是三棱柱截面的边长 (Unit Size)
+               
+               所以创建一个 W x H 的圆角矩形。
+            */
+
+            const shape = new THREE.Shape();
+            const w = width;
+            const h = height;
+            const r = radius;
+
+            // 绘制圆角矩形中心在 (0,0)
+            const x = -w / 2;
+            const y = -h / 2;
+
+            shape.moveTo(x + r, y);
+            shape.lineTo(x + w - r, y);
+            shape.quadraticCurveTo(x + w, y, x + w, y + r);
+            shape.lineTo(x + w, y + h - r);
+            shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            shape.lineTo(x + r, y + h);
+            shape.quadraticCurveTo(x, y + h, x, y + h - r);
+            shape.lineTo(x, y + r);
+            shape.quadraticCurveTo(x, y, x + r, y);
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: thickness,
+                bevelEnabled: true,
+                bevelThickness: bevel, // 边缘倒角，增加一点精致感
+                bevelSize: bevel,
+                bevelSegments: 3
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+            // 默认 geometry 中心不是 (0,0,0) 因为挤压是从 z=0 到 z=depth
+            // 我们需要居中 Z 轴
+            geometry.computeBoundingBox();
+            const centerOffset = -0.5 * (geometry.boundingBox.max.z - geometry.boundingBox.min.z);
+            geometry.translate(0, 0, centerOffset);
+
+            return geometry;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
