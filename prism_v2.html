@@ -62,9 +62,25 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- OrbitControls -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- dat.GUI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
 
     <script>
-        let scene, camera, renderer, controls, prismGroup;
+        let scene, camera, renderer, controls, prismGroup, innerPrism;
+        let gui;
+
+        // 内芯参数配置
+        const innerParams = {
+            size: 0.54,       // [已保存] 内芯大小
+            length: 0.84,     // [已保存] 内芯长度
+            radius: 0.05,     // [已保存] 内芯圆角
+            bevel: 0.0,       // [已保存] 内芯倒角
+            color: '#111111', // [已保存] 内芯颜色
+            visible: true,    // 是否显示
+            x: 0,             // [已保存] X 坐标
+            y: 0,             // [重置] Y 坐标 (现在这是旋转中心)
+            z: 0              // [已保存] Z 坐标
+        };
 
         // 尺寸定义
         // 尺寸定义
@@ -102,7 +118,7 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.autoRotate = true;
+            controls.autoRotate = false; // [修改] 关闭自动旋转
             controls.autoRotateSpeed = 2.0;
 
             // 灯光设置
@@ -314,12 +330,142 @@
 
             scene.add(prismGroup);
 
-            // 辅助
-            // const axesHelper = new THREE.AxesHelper(2);
-            // scene.add(axesHelper);
+            // [修改] 将外壳组向上移动，抵消之前内芯的偏移
+            // 这样内芯现在位于 (0,0,0)，也就是旋转中心
+            prismGroup.position.y = 0;
+
+            // 添加坐标轴辅助线 (红X, 绿Y, 蓝Z)
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+
+            // 初始化内芯
+            generateInnerPrism();
+
+            // 初始化 GUI 控制面板
+            initGUI();
 
             window.addEventListener('resize', onWindowResize);
             animate();
+        }
+
+        function initGUI() {
+            gui = new dat.GUI();
+            const folder = gui.addFolder('内芯参数调整');
+
+            folder.add(innerParams, 'visible').name('显示内芯').onChange(v => {
+                if (innerPrism) innerPrism.visible = v;
+            });
+
+            // 长度范围 0.1 ~ 1.2
+            folder.add(innerParams, 'length', 0.1, 1.2).name('长度 (Length)').onChange(generateInnerPrism);
+
+            // 大小范围 0.1 ~ 0.8
+            folder.add(innerParams, 'size', 0.1, 0.8).name('大小 (Size)').onChange(generateInnerPrism);
+
+            // 圆角范围 0.0 ~ 0.2
+            folder.add(innerParams, 'radius', 0.0, 0.2).name('圆角 (Radius)').onChange(generateInnerPrism);
+
+            // 倒角范围 0.0 ~ 0.05
+            folder.add(innerParams, 'bevel', 0.0, 0.05).name('倒角 (Bevel)').onChange(generateInnerPrism);
+
+            folder.addColor(innerParams, 'color').name('颜色').onChange(v => {
+                if (innerPrism) innerPrism.material.color.set(v);
+            });
+
+            const posFolder = gui.addFolder('位置坐标 (Position)');
+            posFolder.add(innerParams, 'x', -1, 1).name('X 轴').step(0.01).onChange(updateInnerPosition);
+            posFolder.add(innerParams, 'y', -1, 1).name('Y 轴').step(0.01).onChange(updateInnerPosition);
+            posFolder.add(innerParams, 'z', -1, 1).name('Z 轴').step(0.01).onChange(updateInnerPosition);
+            posFolder.open();
+
+            folder.open();
+        }
+
+        function updateInnerPosition() {
+            if (innerPrism) {
+                innerPrism.position.set(innerParams.x, innerParams.y, innerParams.z);
+            }
+        }
+
+        function generateInnerPrism() {
+            if (innerPrism) {
+                scene.remove(innerPrism);
+                innerPrism.geometry.dispose();
+                innerPrism.material.dispose();
+            }
+
+            if (!innerParams.visible) return;
+
+            // 创建圆角三角形柱体
+            const geometry = createInnerPrismGeometry(
+                innerParams.size,
+                innerParams.length,
+                innerParams.radius,
+                innerParams.bevel
+            );
+
+            const material = new THREE.MeshStandardMaterial({
+                color: innerParams.color,
+                roughness: 0.2, // 稍微光滑一点
+                metalness: 0.2
+            });
+
+            innerPrism = new THREE.Mesh(geometry, material);
+
+            // 旋转使其沿 X 轴对齐 (Extrude 沿 Z，默认竖立)
+            // 我们的板子系统是围绕 X 轴构建的。
+            // ExtrudeGeometry 是 Z 轴挤压。
+            // 需要旋转 90 度 y? 让我们看看 createInnerPrismGeometry 的实现
+            // 如果 shape 是在 XY 平面画的三角形，挤压也是 Z。
+            // 我们的棱柱是横着的 (沿 X 轴)。
+            // 我们的棱柱是横着的 (沿 X 轴)。
+            innerPrism.rotation.y = Math.PI / 2;
+
+            // 应用位置
+            innerPrism.position.set(innerParams.x, innerParams.y, innerParams.z);
+
+            scene.add(innerPrism);
+
+        }
+
+        function createInnerPrismGeometry(size, length, radius, bevel) {
+            const shape = new THREE.Shape();
+            const R = size;
+            const r = radius;
+
+            // 倒三角形 (角朝下)
+            const angleStart = -Math.PI / 2; // Bottom (-90 deg)
+            const angleStep = Math.PI * 2 / 3;
+
+            const dist = R - 2 * r; // 近似圆心收缩距离
+
+            // 绘制逻辑
+            for (let i = 0; i < 3; i++) {
+                const angle = angleStart + i * angleStep;
+
+                // 圆心位置
+                const cx = dist * Math.cos(angle);
+                const cy = dist * Math.sin(angle);
+
+                // 绘制圆弧
+                shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
+            }
+            shape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: length,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 5 // 平滑倒角
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            // [修正] 不使用 center()，因为这会破坏三角形的几何中心 (重心)
+            // 我们只需要在 Z 轴 (长度方向) 居中即可
+            geometry.translate(0, 0, -length / 2);
+            return geometry;
         }
 
         function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
