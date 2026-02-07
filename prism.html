@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单个三棱柱模型查看</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #eee;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            backdrop-filter: blur(5px);
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h3>三棱柱详情查看</h3>
+        <p>左键拖拽旋转 | 右键拖拽平移 | 滚轮缩放</p>
+    </div>
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls, prism;
+
+        // 尺寸定义
+        const UNIT_SIZE = 1.0;
+        const triHeight = (Math.sqrt(3) / 2) * UNIT_SIZE;
+        const distToSide = triHeight / 3;
+        const distToVertex = (triHeight * 2) / 3;
+
+        function init() {
+            // 场景初始化
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // 相机设置 - 使用透视相机以获得更好的3D观感
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(3, 2, 4); // 设置一个好看的初始角度
+
+            // 渲染器设置
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // 启用阴影
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 控制器设置
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // 启用阻尼感
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;     // 自动慢慢旋转展示
+            controls.autoRotateSpeed = 2.0;
+
+            // 灯光设置
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(5, 10, 7);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            // 添加背光轮廓
+            const backLight = new THREE.PointLight(0xffffff, 0.5);
+            backLight.position.set(-5, -5, -5);
+            scene.add(backLight);
+
+            // 创建三棱柱
+            const geometry = createPixelGeometry();
+            const material = new THREE.MeshStandardMaterial({
+                vertexColors: true, // 使用几何体中定义的颜色
+                roughness: 0.3,
+                metalness: 0.1,
+                side: THREE.DoubleSide
+            });
+
+            prism = new THREE.Mesh(geometry, material);
+            prism.castShadow = true;
+            prism.receiveShadow = true;
+            scene.add(prism);
+
+            // 添加网格辅助线 (GridHelper)
+            const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+            scene.add(gridHelper);
+
+            // 添加坐标轴辅助 (AxesHelper)
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+
+            // 事件监听
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        // 复用原有的几何体创建函数
+        function createPixelGeometry() {
+            const geometry = new THREE.BufferGeometry();
+            const halfW = UNIT_SIZE / 2;
+
+            // 定义三角形在 YZ 平面上的三个顶点
+            // 注意：这里 coordinates 主要是 (x, y, z) 
+            // 在原代码中：
+            // p1 = [halfW, distToSide]   -> 对应 y, z ? 不，看起来是 p[0] 是y, p[1] 是z
+            // 让我们仔细看原代码的 buffer 构造：
+            // -halfW, p1[0], p1[1] -> x, y, z
+
+            const p1 = [halfW, distToSide];     // 这里的 halfW 是三角形的一半宽度 (0.5)
+            const p2 = [-halfW, distToSide];    // -0.5
+            const p3 = [0, -distToVertex];      // 底部顶点
+
+            // 构建顶点数据
+            const positions = new Float32Array([
+                // 面 1 (左侧面? x=-0.5)
+                -halfW, p1[0], p1[1], -halfW, p2[0], p2[1], -halfW, p3[0], p3[1],
+                // 面 2 (右侧面? x=0.5)
+                halfW, p1[0], p1[1], halfW, p3[0], p3[1], halfW, p2[0], p2[1],
+                // 侧面 A
+                -halfW, p1[0], p1[1], halfW, p1[0], p1[1], halfW, p2[0], p2[1],
+                -halfW, p1[0], p1[1], halfW, p2[0], p2[1], -halfW, p2[0], p2[1],
+                // 侧面 B
+                -halfW, p2[0], p2[1], halfW, p2[0], p2[1], halfW, p3[0], p3[1],
+                -halfW, p2[0], p2[1], halfW, p3[0], p3[1], -halfW, p3[0], p3[1],
+                // 侧面 C
+                -halfW, p3[0], p3[1], halfW, p3[0], p3[1], halfW, p1[0], p1[1],
+                -halfW, p3[0], p3[1], halfW, p1[0], p1[1], -halfW, p1[0], p1[1]
+            ]);
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            // 复用原有的颜色数据
+            const colors = new Float32Array([
+                // 原代码中的颜色数组
+                0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
+                0.2, 0.5, 0.9, 0.2, 0.5, 0.9, 0.2, 0.5, 0.9, 0.2, 0.5, 0.9, 0.2, 0.5, 0.9, 0.2, 0.5, 0.9,
+                0.9, 0.2, 0.4, 0.9, 0.2, 0.4, 0.9, 0.2, 0.4, 0.9, 0.2, 0.4, 0.9, 0.2, 0.4, 0.9, 0.2, 0.4,
+                0.9, 0.8, 0.1, 0.9, 0.8, 0.1, 0.9, 0.8, 0.1, 0.9, 0.8, 0.1, 0.9, 0.8, 0.1, 0.9, 0.8, 0.1
+            ]);
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            geometry.computeVertexNormals();
+            return geometry;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // requried for damping
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
