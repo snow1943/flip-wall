@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 像素显示墙 - 数字与文字</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #eee;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+            z-index: 10;
+        }
+
+        #control-panel {
+            position: absolute;
+            right: 20px;
+            bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(10, 10, 10, 0.6);
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: #eee;
+            font-size: 14px;
+            pointer-events: auto;
+            z-index: 12;
+            backdrop-filter: blur(6px);
+        }
+
+        #control-panel select,
+        #control-panel button {
+            background: #1d1d1d;
+            color: #eee;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 14px;
+        }
+
+        #control-panel button {
+            cursor: pointer;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h2>3D 像素显示墙</h2>
+        <p>自动轮换显示：10 到 1 倒计时，然后显示 HELLO / WORLD</p>
+    </div>
+
+    <div id="control-panel">
+        <label for="startSelect">开始位置</label>
+        <select id="startSelect"></select>
+        <button id="startBtn">开始</button>
+    </div>
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+    <!-- dat.GUI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+
+    <script>
+        let scene, camera, renderer;
+        let ambientLight, hemiLight, spotLight, fillLight, rimLight, keyLight;
+        const pixels = [];
+        const rows = 12;
+        const cols = 32;
+        const compactCols = 22;
+
+        const UNIT_SIZE = 1.0;
+        const PLATE_THICKNESS = 0.001;
+        const BEVEL_THICKNESS = 0.001;
+        const CORNER_RADIUS = 0.3;
+        const GAP_OFFSET = 0.0;
+        const PLATE_SCALE = 1.0;
+
+        const innerParams = {
+            size: 0.54,
+            length: 0.84,
+            radius: 0.05,
+            bevel: 0.0,
+            color: '#111111',
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        const config = {
+            initRotationX: Math.PI / 2,
+            initRotationY: 0.0,
+            initRotationZ: 0.0,
+            gap: 0.057,
+            backgroundColor: '#20252c',
+            exposure: 1.03,
+
+            camX: 0, camY: 0, camZ: 20,
+            viewSize: 14,
+
+            spotLightX: 5, spotLightY: 10, spotLightZ: 30,
+            spotLightIntensity: 1.22,
+            spotLightAngle: 0.23,
+            spotLightPenumbra: 0.3,
+
+            fillLightX: -5, fillLightY: 2, fillLightZ: 20,
+            fillLightIntensity: 0.24,
+
+            ambientIntensity: 0.08,
+            hemiIntensity: 0.11,
+
+            rimLightX: -14, rimLightY: 8, rimLightZ: -16,
+            rimLightIntensity: 1.2,
+
+            keyLightX: 10, keyLightY: 7, keyLightZ: 16,
+            keyLightIntensity: 0.35,
+
+            colorSilver: '#9ea5af',
+            colorGold: '#d4af37',
+            colorCopper: '#b87333',
+
+            plateRoughness: 0.12,
+            plateMetalness: 0.98,
+            plateEnvMapIntensity: 1.9,
+            plateClearcoat: 0.55,
+            plateClearcoatRoughness: 0.1,
+
+            fallbackStripeStrongAlpha: 0.56,
+            fallbackStripeSoftAlpha: 0.22
+        };
+
+        let plateGeometry, innerGeometry;
+        let baseMaterials = [];
+        let baseInnerMaterial;
+
+        const ON_COLORS = [
+            new THREE.Color(0x9ea5af), // metallic silver (default, darker)
+            new THREE.Color(0xd4af37), // metallic gold
+            new THREE.Color(0xb87333)  // metallic copper
+        ];
+
+        const FLIP_ANGLE = (Math.PI * 2) / 3;
+        const FLIP_DURATION = 320;
+        const ROW_STAGGER_MS = 14;
+        const COL_STAGGER_MS = 4;
+        const LAYOUT_DURATION = 700;
+
+        const layoutState = {
+            progress: 0,
+            target: 0,
+            from: 0,
+            start: 0,
+            duration: LAYOUT_DURATION,
+            animating: false,
+            compactView: 14,
+            expandedView: 14 * (cols / compactCols)
+        };
+
+        const ON_EMISSIVE = 0.0;
+        const OFF_EMISSIVE = 0.0;
+
+        let globalOnFaceIndex = 0;
+
+        const FONT_HEIGHT = 7;
+        const FONT_SPACING = 1;
+
+        const FONT = {
+            '0': [
+                '01110',
+                '10001',
+                '10011',
+                '10101',
+                '11001',
+                '10001',
+                '01110'
+            ],
+            '1': [
+                '00100',
+                '01100',
+                '00100',
+                '00100',
+                '00100',
+                '00100',
+                '01110'
+            ],
+            '2': [
+                '01110',
+                '10001',
+                '00001',
+                '00010',
+                '00100',
+                '01000',
+                '11111'
+            ],
+            '3': [
+                '01110',
+                '10001',
+                '00001',
+                '00110',
+                '00001',
+                '10001',
+                '01110'
+            ],
+            '4': [
+                '00010',
+                '00110',
+                '01010',
+                '10010',
+                '11111',
+                '00010',
+                '00010'
+            ],
+            '5': [
+                '11111',
+                '10000',
+                '11110',
+                '00001',
+                '00001',
+                '10001',
+                '01110'
+            ],
+            '6': [
+                '00110',
+                '01000',
+                '10000',
+                '11110',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            '7': [
+                '11111',
+                '00001',
+                '00010',
+                '00100',
+                '01000',
+                '01000',
+                '01000'
+            ],
+            '8': [
+                '01110',
+                '10001',
+                '10001',
+                '01110',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            '9': [
+                '01110',
+                '10001',
+                '10001',
+                '01111',
+                '00001',
+                '00010',
+                '01100'
+            ],
+            'A': [
+                '01110',
+                '10001',
+                '10001',
+                '11111',
+                '10001',
+                '10001',
+                '10001'
+            ],
+            'D': [
+                '11110',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '11110'
+            ],
+            'E': [
+                '11111',
+                '10000',
+                '10000',
+                '11110',
+                '10000',
+                '10000',
+                '11111'
+            ],
+            'H': [
+                '10001',
+                '10001',
+                '10001',
+                '11111',
+                '10001',
+                '10001',
+                '10001'
+            ],
+            'L': [
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '11111'
+            ],
+            'O': [
+                '01110',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            'R': [
+                '11110',
+                '10001',
+                '10001',
+                '11110',
+                '10100',
+                '10010',
+                '10001'
+            ],
+            'W': [
+                '10001',
+                '10001',
+                '10001',
+                '10101',
+                '10101',
+                '10101',
+                '01010'
+            ],
+            ' ': [
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000'
+            ]
+        };
+
+        const playlist = [
+            { text: '10', duration: 900, expand: false },
+            { text: '9', duration: 900, expand: false },
+            { text: '8', duration: 900, expand: false },
+            { text: '7', duration: 900, expand: false },
+            { text: '6', duration: 900, expand: false },
+            { text: '5', duration: 900, expand: false },
+            { text: '4', duration: 900, expand: false },
+            { text: '3', duration: 900, expand: false },
+            { text: '2', duration: 900, expand: false },
+            { text: '1', duration: 900, expand: false },
+            { text: 'HELLO', duration: 1400, expand: true },
+            { text: 'WORLD', duration: 1400, expand: true }
+        ];
+
+        let playlistRunId = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(config.backgroundColor);
+
+            const aspect = window.innerWidth / window.innerHeight;
+            const viewSize = config.viewSize;
+            camera = new THREE.OrthographicCamera(
+                -viewSize * aspect / 2, viewSize * aspect / 2,
+                viewSize / 2, -viewSize / 2,
+                0.1, 1000
+            );
+            camera.position.set(config.camX, config.camY, config.camZ);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = config.exposure;
+            renderer.physicallyCorrectLights = false;
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            ambientLight = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
+            scene.add(ambientLight);
+            hemiLight = new THREE.HemisphereLight(0xe8f1ff, 0x2e343d, config.hemiIntensity);
+            scene.add(hemiLight);
+
+            spotLight = new THREE.SpotLight(0xffffff, config.spotLightIntensity);
+            spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+            spotLight.angle = config.spotLightAngle;
+            spotLight.penumbra = config.spotLightPenumbra;
+            spotLight.decay = 1.5;
+            spotLight.distance = 100;
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 2048;
+            spotLight.shadow.mapSize.height = 2048;
+            spotLight.shadow.bias = -0.0001;
+            scene.add(spotLight);
+
+            fillLight = new THREE.DirectionalLight(0xd8e3ff, config.fillLightIntensity);
+            fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+            scene.add(fillLight);
+
+            rimLight = new THREE.DirectionalLight(0xf2f7ff, config.rimLightIntensity);
+            rimLight.position.set(config.rimLightX, config.rimLightY, config.rimLightZ);
+            scene.add(rimLight);
+
+            keyLight = new THREE.DirectionalLight(0xffffff, config.keyLightIntensity);
+            keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
+            scene.add(keyLight);
+
+            loadEnvironment(() => {
+                initResources();
+
+                for (let i = 0; i < rows; i++) {
+                    for (let j = 0; j < cols; j++) {
+                        const prism = createPrismInstance();
+
+                        prism.userData.gridRow = i;
+                        prism.userData.gridCol = j;
+
+                        prism.userData.baseRotationX = config.initRotationX;
+                        prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
+                        prism.userData.targetRotationX = config.initRotationX;
+                        prism.userData.startRotationX = config.initRotationX;
+                        prism.userData.currentOn = false;
+                        prism.userData.targetOn = false;
+                        prism.userData.isAnimating = false;
+
+                        scene.add(prism);
+                        pixels.push(prism);
+                    }
+                }
+
+                initGUI();
+                initControlPanel();
+
+                updateLayoutViewSizes();
+                computeLayoutData();
+                setLayout(false, true);
+
+                globalOnFaceIndex = 1;
+                applyGrid(renderTextToGrid('10', compactCols), true);
+                startPlaylist(0);
+
+                window.addEventListener('resize', onWindowResize);
+                animate();
+            });
+        }
+
+        function loadEnvironment(onComplete) {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+
+            const hdrUrl = 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr';
+            const rgbeLoader = new THREE.RGBELoader();
+            rgbeLoader.load(
+                hdrUrl,
+                (hdrTexture) => {
+                    const envMap = pmremGenerator.fromEquirectangular(hdrTexture).texture;
+                    scene.environment = envMap;
+                    hdrTexture.dispose();
+                    pmremGenerator.dispose();
+                    onComplete();
+                },
+                undefined,
+                () => {
+                    scene.environment = createFallbackEnvironment(pmremGenerator);
+                    pmremGenerator.dispose();
+                    onComplete();
+                }
+            );
+        }
+
+        function createFallbackEnvironment(pmremGenerator) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            bg.addColorStop(0.0, '#6f7886');
+            bg.addColorStop(0.35, '#aeb8c8');
+            bg.addColorStop(1.0, '#2a303a');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.globalAlpha = config.fallbackStripeStrongAlpha;
+            ctx.fillStyle = '#f2f6ff';
+            ctx.fillRect(180, 0, 60, canvas.height);
+            ctx.fillRect(430, 0, 90, canvas.height);
+            ctx.fillRect(760, 0, 50, canvas.height);
+            ctx.globalAlpha = config.fallbackStripeSoftAlpha;
+            ctx.fillRect(0, 150, canvas.width, 60);
+            ctx.globalAlpha = 1.0;
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.encoding = THREE.sRGBEncoding;
+            const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+            texture.dispose();
+            return envMap;
+        }
+
+        function initGUI() {
+            const gui = new dat.GUI();
+            const folder = gui.addFolder('初始角度调整');
+
+            const updateRotations = () => {
+                pixels.forEach(p => {
+                    p.userData.baseRotationX = config.initRotationX;
+                    p.rotation.set(
+                        p.userData.baseRotationX + p.userData.faceIndex * FLIP_ANGLE,
+                        config.initRotationY,
+                        config.initRotationZ
+                    );
+                    p.userData.targetRotationX = p.userData.baseRotationX + p.userData.faceIndex * FLIP_ANGLE;
+                    p.userData.isAnimating = false;
+                });
+            };
+
+            folder.add(config, 'initRotationX', -Math.PI, Math.PI).step(0.01).name('X 轴角度').onChange(updateRotations);
+            folder.add(config, 'initRotationY', -Math.PI, Math.PI).step(0.01).name('Y 轴角度').onChange(updateRotations);
+            folder.add(config, 'gap', 0.0, 0.5).step(0.001).name('行列间距').onChange(updatePositions);
+            folder.open();
+
+            const camFolder = gui.addFolder('相机视角设置');
+            const updateCamera = () => {
+                camera.position.set(config.camX, config.camY, config.camZ);
+                camera.lookAt(0, 0, 0);
+                updateLayoutViewSizes();
+                applyLayoutProgress(layoutState.progress);
+            };
+            camFolder.add(config, 'camX', -50, 50).name('位置 X').onChange(updateCamera);
+            camFolder.add(config, 'camY', -50, 50).name('位置 Y').onChange(updateCamera);
+            camFolder.add(config, 'camZ', 0, 100).name('位置 Z').onChange(updateCamera);
+            camFolder.add(config, 'viewSize', 5, 30).name('缩放 (ViewSize)').onChange(updateCamera);
+            camFolder.open();
+
+            const lightFolder = gui.addFolder('光源设置');
+            const updateLights = () => {
+                ambientLight.intensity = config.ambientIntensity;
+                hemiLight.intensity = config.hemiIntensity;
+
+                spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+                spotLight.intensity = config.spotLightIntensity;
+                spotLight.angle = config.spotLightAngle;
+                spotLight.penumbra = config.spotLightPenumbra;
+
+                fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+                fillLight.intensity = config.fillLightIntensity;
+
+                rimLight.position.set(config.rimLightX, config.rimLightY, config.rimLightZ);
+                rimLight.intensity = config.rimLightIntensity;
+
+                keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
+                keyLight.intensity = config.keyLightIntensity;
+            };
+
+            lightFolder.add(config, 'spotLightX', -50, 50).name('主光 X').onChange(updateLights);
+            lightFolder.add(config, 'spotLightY', -50, 50).name('主光 Y').onChange(updateLights);
+            lightFolder.add(config, 'spotLightZ', 0, 100).name('主光 Z').onChange(updateLights);
+            lightFolder.add(config, 'spotLightIntensity', 0, 4).name('主光强度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightAngle', 0, Math.PI / 2).name('光照角度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightPenumbra', 0, 1).name('边缘柔化').onChange(updateLights);
+
+            lightFolder.add(config, 'fillLightX', -20, 20).name('补光 X').onChange(updateLights);
+            lightFolder.add(config, 'fillLightY', -20, 20).name('补光 Y').onChange(updateLights);
+            lightFolder.add(config, 'fillLightZ', -20, 20).name('补光 Z').onChange(updateLights);
+            lightFolder.add(config, 'fillLightIntensity', 0, 4).name('补光强度').onChange(updateLights);
+            lightFolder.add(config, 'ambientIntensity', 0, 1.5).name('环境光强度').onChange(updateLights);
+            lightFolder.add(config, 'hemiIntensity', 0, 1.5).name('半球光强度').onChange(updateLights);
+            lightFolder.add(config, 'rimLightX', -30, 30).name('轮廓光 X').onChange(updateLights);
+            lightFolder.add(config, 'rimLightY', -30, 30).name('轮廓光 Y').onChange(updateLights);
+            lightFolder.add(config, 'rimLightZ', -30, 30).name('轮廓光 Z').onChange(updateLights);
+            lightFolder.add(config, 'rimLightIntensity', 0, 4).name('轮廓光强度').onChange(updateLights);
+            lightFolder.add(config, 'keyLightX', -30, 30).name('正补光 X').onChange(updateLights);
+            lightFolder.add(config, 'keyLightY', -30, 30).name('正补光 Y').onChange(updateLights);
+            lightFolder.add(config, 'keyLightZ', -30, 30).name('正补光 Z').onChange(updateLights);
+            lightFolder.add(config, 'keyLightIntensity', 0, 4).name('正补光强度').onChange(updateLights);
+
+            const renderFolder = gui.addFolder('渲染与背景');
+            renderFolder.add(config, 'exposure', 0.5, 1.8).step(0.01).name('曝光(整体亮度基线)').onChange(updateRenderParams);
+            renderFolder.addColor(config, 'backgroundColor').name('背景色(对比基底)').onChange(updateRenderParams);
+            renderFolder.add(config, 'fallbackStripeStrongAlpha', 0, 0.8).step(0.01).name('Fallback高光(强条纹)').onChange(refreshEnvironmentFromFallback);
+            renderFolder.add(config, 'fallbackStripeSoftAlpha', 0, 0.5).step(0.01).name('Fallback高光(弱条纹)').onChange(refreshEnvironmentFromFallback);
+
+            const materialFolder = gui.addFolder('展示面材质');
+            materialFolder.add(config, 'plateMetalness', 0, 1).step(0.01).name('金属度(高=更像金属)').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateRoughness', 0.02, 0.8).step(0.01).name('粗糙度(高=更雾面)').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateEnvMapIntensity', 0, 3).step(0.01).name('环境反射强度(高=更亮反光)').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateClearcoat', 0, 1).step(0.01).name('清漆层(高=高光更硬)').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateClearcoatRoughness', 0, 1).step(0.01).name('清漆粗糙(高=高光更散)').onChange(updatePlateMaterials);
+
+            const colorFolder = gui.addFolder('展示面颜色');
+            colorFolder.addColor(config, 'colorSilver').name('银色(默认展示面)').onChange(updatePlateColors);
+            colorFolder.addColor(config, 'colorGold').name('金色(第2面)').onChange(updatePlateColors);
+            colorFolder.addColor(config, 'colorCopper').name('铜色(第3面)').onChange(updatePlateColors);
+        }
+
+        function updateRenderParams() {
+            if (renderer) renderer.toneMappingExposure = config.exposure;
+            if (scene) scene.background = new THREE.Color(config.backgroundColor);
+        }
+
+        function refreshEnvironmentFromFallback() {
+            if (!renderer || !scene) return;
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+            scene.environment = createFallbackEnvironment(pmremGenerator);
+            pmremGenerator.dispose();
+        }
+
+        function updatePlateColors() {
+            ON_COLORS[0].set(config.colorSilver);
+            ON_COLORS[1].set(config.colorGold);
+            ON_COLORS[2].set(config.colorCopper);
+            pixels.forEach(group => applyMaterialState(group, group.userData.currentOn ? 1 : 0, true));
+        }
+
+        function updatePlateMaterials() {
+            pixels.forEach(group => {
+                group.userData.plateMaterials.forEach(material => {
+                    material.metalness = config.plateMetalness;
+                    material.roughness = config.plateRoughness;
+                    material.envMapIntensity = config.plateEnvMapIntensity;
+                    material.clearcoat = config.plateClearcoat;
+                    material.clearcoatRoughness = config.plateClearcoatRoughness;
+                    material.needsUpdate = true;
+                });
+            });
+        }
+
+        function initControlPanel() {
+            const select = document.getElementById('startSelect');
+            const button = document.getElementById('startBtn');
+            if (!select || !button) return;
+
+            select.innerHTML = '';
+            playlist.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = `${index + 1}. ${item.text}`;
+                select.appendChild(option);
+            });
+
+            button.addEventListener('click', () => {
+                const idx = Number.parseInt(select.value, 10);
+                resetAndStart(Number.isNaN(idx) ? 0 : idx);
+            });
+        }
+
+        function updatePositions() {
+            computeLayoutData();
+            applyLayoutProgress(layoutState.progress);
+        }
+
+        function updateLayoutViewSizes() {
+            layoutState.compactView = config.viewSize;
+            layoutState.expandedView = config.viewSize * (cols / compactCols);
+        }
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function computeLayoutData() {
+            const gap = config.gap;
+            const totalHeight = rows * (UNIT_SIZE + gap);
+            const compactTotalWidth = compactCols * (UNIT_SIZE + gap);
+            const expandedTotalWidth = cols * (UNIT_SIZE + gap);
+            const compactStart = Math.floor((cols - compactCols) / 2);
+            const compactEnd = compactStart + compactCols - 1;
+
+            pixels.forEach(group => {
+                const row = group.userData.gridRow;
+                const col = group.userData.gridCol;
+                const posY = (row * (UNIT_SIZE + gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
+
+                const expandedX = (col * (UNIT_SIZE + gap)) - (expandedTotalWidth / 2) + (UNIT_SIZE / 2);
+                const mappedCol = clamp(col, compactStart, compactEnd) - compactStart;
+                const compactX = (mappedCol * (UNIT_SIZE + gap)) - (compactTotalWidth / 2) + (UNIT_SIZE / 2);
+
+                group.userData.compactPos = { x: compactX, y: posY };
+                group.userData.expandedPos = { x: expandedX, y: posY };
+                group.userData.compactScale = (col < compactStart || col > compactEnd) ? 0.0 : 1.0;
+                group.userData.expandedScale = 1.0;
+            });
+        }
+
+        function applyLayoutProgress(progress) {
+            layoutState.progress = progress;
+            pixels.forEach(group => {
+                const compactPos = group.userData.compactPos;
+                const expandedPos = group.userData.expandedPos;
+                const x = compactPos.x + (expandedPos.x - compactPos.x) * progress;
+                const y = compactPos.y + (expandedPos.y - compactPos.y) * progress;
+                const scale = group.userData.compactScale + (group.userData.expandedScale - group.userData.compactScale) * progress;
+                const s = Math.max(0.001, scale);
+                group.position.x = x;
+                group.position.y = y;
+                group.scale.set(s, s, s);
+            });
+
+            const viewSize = layoutState.compactView + (layoutState.expandedView - layoutState.compactView) * progress;
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -viewSize * aspect / 2;
+            camera.right = viewSize * aspect / 2;
+            camera.top = viewSize / 2;
+            camera.bottom = -viewSize / 2;
+            camera.updateProjectionMatrix();
+        }
+
+        function setLayout(expanded, immediate = false) {
+            const target = expanded ? 1 : 0;
+            layoutState.target = target;
+            if (immediate) {
+                layoutState.progress = target;
+                layoutState.animating = false;
+                applyLayoutProgress(target);
+                return;
+            }
+            if (layoutState.progress === target) return;
+            layoutState.from = layoutState.progress;
+            layoutState.start = performance.now();
+            layoutState.animating = true;
+        }
+
+        function initResources() {
+            const PLATE_WIDTH = UNIT_SIZE * PLATE_SCALE;
+            plateGeometry = createRoundedPlateGeometry(
+                UNIT_SIZE,
+                PLATE_WIDTH,
+                PLATE_THICKNESS,
+                BEVEL_THICKNESS,
+                CORNER_RADIUS
+            );
+
+            innerGeometry = createInnerPrismGeometry(
+                innerParams.size,
+                innerParams.length,
+                innerParams.radius,
+                innerParams.bevel
+            );
+
+            baseMaterials = ON_COLORS.map(c => new THREE.MeshPhysicalMaterial({
+                color: c,
+                roughness: config.plateRoughness,
+                metalness: config.plateMetalness,
+                envMapIntensity: config.plateEnvMapIntensity,
+                clearcoat: config.plateClearcoat,
+                clearcoatRoughness: config.plateClearcoatRoughness
+            }));
+
+            baseInnerMaterial = new THREE.MeshStandardMaterial({
+                color: innerParams.color,
+                roughness: 0.2,
+                metalness: 0.2
+            });
+        }
+
+        function createPrismInstance() {
+            const group = new THREE.Group();
+
+            const apothem = UNIT_SIZE / (2 * Math.sqrt(3));
+            const distance = apothem - PLATE_THICKNESS / 2 + GAP_OFFSET;
+            const angles = [Math.PI / 2, -Math.PI / 6, 7 * Math.PI / 6];
+
+            const plateMaterials = baseMaterials.map(m => m.clone());
+            const innerMaterial = baseInnerMaterial.clone();
+
+            for (let i = 0; i < 3; i++) {
+                const plate = new THREE.Mesh(plateGeometry, plateMaterials[i]);
+                plate.castShadow = true;
+                plate.receiveShadow = true;
+
+                const angle = angles[i];
+                plate.position.set(0, distance * Math.sin(angle), distance * Math.cos(angle));
+                plate.rotation.x = -angle;
+
+                group.add(plate);
+            }
+
+            const inner = new THREE.Mesh(innerGeometry, innerMaterial);
+            inner.rotation.y = Math.PI / 2;
+            inner.position.set(innerParams.x, innerParams.y, innerParams.z);
+            group.add(inner);
+
+            group.userData = {
+                plateMaterials,
+                innerMaterial,
+                currentOn: false,
+                targetOn: false,
+                isAnimating: false,
+                animStart: 0,
+                startRotationX: 0,
+                targetRotationX: 0,
+                rotationDelta: 0,
+                faceIndex: 0,
+                targetFace: 0,
+                baseRotationX: config.initRotationX
+            };
+
+            applyMaterialState(group, 0, true);
+            return group;
+        }
+
+        function applyMaterialState(group, level, immediate = false) {
+            const t = Math.min(1, Math.max(0, level));
+            const emissive = OFF_EMISSIVE + (ON_EMISSIVE - OFF_EMISSIVE) * t;
+
+            for (let i = 0; i < group.userData.plateMaterials.length; i++) {
+                const material = group.userData.plateMaterials[i];
+                material.color.copy(ON_COLORS[i]);
+                material.emissive.set(0x000000);
+                material.emissiveIntensity = emissive;
+                if (immediate) material.needsUpdate = true;
+            }
+
+            group.userData.innerMaterial.color.set(innerParams.color);
+            group.userData.innerMaterial.emissive.set(0x000000);
+            group.userData.innerMaterial.emissiveIntensity = emissive * 0.6;
+        }
+
+        function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
+            const shape = new THREE.Shape();
+            const w = width;
+            const h = height;
+            const r = radius;
+
+            const x = -w / 2;
+            const y = -h / 2;
+
+            shape.moveTo(x + r, y);
+            shape.lineTo(x + w - r, y);
+            shape.quadraticCurveTo(x + w, y, x + w, y + r);
+            shape.lineTo(x + w, y + h - r);
+            shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            shape.lineTo(x + r, y + h);
+            shape.quadraticCurveTo(x, y + h, x, y + h - r);
+            shape.lineTo(x, y + r);
+            shape.quadraticCurveTo(x, y, x + r, y);
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: thickness,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 3
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.computeBoundingBox();
+            const centerOffset = -0.5 * (geometry.boundingBox.max.z - geometry.boundingBox.min.z);
+            geometry.translate(0, 0, centerOffset);
+
+            return geometry;
+        }
+
+        function createInnerPrismGeometry(size, length, radius, bevel) {
+            const shape = new THREE.Shape();
+            const R = size;
+            const r = radius;
+
+            const angleStart = -Math.PI / 2;
+            const angleStep = Math.PI * 2 / 3;
+            const dist = R - 2 * r;
+
+            for (let i = 0; i < 3; i++) {
+                const angle = angleStart + i * angleStep;
+                const cx = dist * Math.cos(angle);
+                const cy = dist * Math.sin(angle);
+                shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
+            }
+            shape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: length,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 5
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.translate(0, 0, -length / 2);
+            return geometry;
+        }
+
+        function buildTextBitmap(text) {
+            const upper = text.toUpperCase();
+            const glyphs = [];
+            let width = 0;
+
+            for (const ch of upper) {
+                const glyph = FONT[ch] || FONT[' '];
+                const glyphWidth = glyph[0].length;
+                glyphs.push({ glyph, width: glyphWidth });
+                width += glyphWidth;
+            }
+            if (glyphs.length > 1) width += FONT_SPACING * (glyphs.length - 1);
+
+            const bitmap = Array.from({ length: FONT_HEIGHT }, () => Array(width).fill(0));
+            let offsetX = 0;
+            glyphs.forEach((g, idx) => {
+                for (let y = 0; y < FONT_HEIGHT; y++) {
+                    const row = g.glyph[y] || '00000';
+                    for (let x = 0; x < g.width; x++) {
+                        if (row[x] === '1') bitmap[y][offsetX + x] = 1;
+                    }
+                }
+                offsetX += g.width + (idx < glyphs.length - 1 ? FONT_SPACING : 0);
+            });
+
+            return { bitmap, width, height: FONT_HEIGHT };
+        }
+
+        function renderTextToGrid(text, activeCols) {
+            const built = buildTextBitmap(text);
+            const scaled = scaleBitmapToGrid(built.bitmap, built.width, built.height, activeCols, rows);
+            const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+            const startCol = Math.floor((cols - activeCols) / 2);
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < activeCols; col++) {
+                    grid[row][startCol + col] = scaled[row][col];
+                }
+            }
+            return grid;
+        }
+
+        function scaleBitmapToGrid(bitmap, width, height, targetCols, targetRows) {
+            const scaleFactor = Math.max(width / targetCols, height / targetRows, 1);
+            const targetW = Math.min(targetCols, Math.max(1, Math.floor(width / scaleFactor)));
+            const targetH = Math.min(targetRows, Math.max(1, Math.floor(height / scaleFactor)));
+
+            const grid = Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
+            const startCol = Math.floor((targetCols - targetW) / 2);
+            const startRow = Math.floor((targetRows - targetH) / 2);
+
+            for (let ty = 0; ty < targetH; ty++) {
+                const y0 = Math.floor(ty * scaleFactor);
+                const y1 = Math.min(height, Math.floor((ty + 1) * scaleFactor));
+
+                for (let tx = 0; tx < targetW; tx++) {
+                    const x0 = Math.floor(tx * scaleFactor);
+                    const x1 = Math.min(width, Math.floor((tx + 1) * scaleFactor));
+
+                    let on = 0;
+                    for (let y = y0; y < y1 && !on; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            if (bitmap[y][x]) {
+                                on = 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (on) grid[startRow + ty][startCol + tx] = 1;
+                }
+            }
+
+            return grid;
+        }
+
+        function applyGrid(grid, immediate = false) {
+            if (!immediate) {
+                globalOnFaceIndex = (globalOnFaceIndex + 1) % 3;
+                if (globalOnFaceIndex === 0) globalOnFaceIndex = 1;
+            }
+            let maxTime = 0;
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const on = grid[row][col] === 1;
+                    const t = setPixelState(row, col, on, immediate);
+                    if (t > maxTime) maxTime = t;
+                }
+            }
+            return maxTime;
+        }
+
+        function setPixelState(row, col, on, immediate = false) {
+            const mappedRow = rows - 1 - row;
+            const index = mappedRow * cols + col;
+            const group = pixels[index];
+            if (!group) return 0;
+
+            if (immediate) {
+                group.userData.currentOn = on;
+                group.userData.targetOn = on;
+                group.userData.isAnimating = false;
+                const onFace = globalOnFaceIndex === 0 ? 1 : globalOnFaceIndex;
+                const targetFace = on ? onFace : 0;
+                group.userData.faceIndex = targetFace;
+                group.userData.targetFace = targetFace;
+                group.rotation.x = group.userData.baseRotationX + targetFace * FLIP_ANGLE;
+                applyMaterialState(group, on ? 1 : 0, true);
+                return 0;
+            }
+
+            const startOn = group.userData.currentOn;
+            const endOn = on;
+            const onFace = globalOnFaceIndex === 0 ? 1 : globalOnFaceIndex;
+            const targetFace = endOn ? onFace : 0;
+            const steps = (targetFace - group.userData.faceIndex + 3) % 3;
+
+            if (group.userData.targetOn === on && steps === 0) return 0;
+
+            group.userData.targetOn = on;
+            group.userData.targetFace = targetFace;
+            group.userData.isAnimating = steps > 0 || startOn !== endOn;
+            group.userData.animStart = performance.now();
+            group.userData.animDelay = row * ROW_STAGGER_MS + col * COL_STAGGER_MS;
+            group.userData.animDuration = Math.max(FLIP_DURATION, FLIP_DURATION * steps);
+            group.userData.startRotationX = group.rotation.x;
+            group.userData.rotationDelta = FLIP_ANGLE * steps;
+            group.userData.targetRotationX = group.rotation.x + group.userData.rotationDelta;
+            group.userData.startOn = startOn;
+            group.userData.endOn = endOn;
+            return group.userData.animDelay + group.userData.animDuration;
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function makeEmptyGrid() {
+            return Array.from({ length: rows }, () => Array(cols).fill(0));
+        }
+
+        async function transitionLayout(expand) {
+            if ((expand && layoutState.target === 1) || (!expand && layoutState.target === 0)) {
+                if (!layoutState.animating) return;
+            }
+            setLayout(expand, false);
+            await delay(layoutState.duration);
+        }
+
+        async function resetAndStart(startIndex) {
+            playlistRunId += 1;
+            const resetId = playlistRunId;
+
+            pixels.forEach(group => {
+                group.userData.isAnimating = false;
+            });
+
+            if (layoutState.progress !== 0) {
+                setLayout(false, false);
+                await delay(layoutState.duration);
+                if (resetId !== playlistRunId) return;
+            }
+
+            globalOnFaceIndex = 1;
+            applyGrid(makeEmptyGrid(), true);
+            startPlaylist(startIndex);
+        }
+
+        async function playItem(item) {
+            const useExpanded = !!item.expand;
+            await transitionLayout(useExpanded);
+
+            const activeCols = useExpanded ? cols : compactCols;
+            const grid = renderTextToGrid(item.text, activeCols);
+            const frameTime = applyGrid(grid);
+            await delay((item.duration || 900) + frameTime);
+        }
+
+        function startPlaylist(startIndex = 0) {
+            playlistRunId += 1;
+            const runId = playlistRunId;
+            let idx = Math.max(0, startIndex | 0);
+            const loop = async () => {
+                while (runId === playlistRunId) {
+                    const item = playlist[idx % playlist.length];
+                    await playItem(item);
+                    idx = (idx + 1) % playlist.length;
+                }
+            };
+            loop();
+        }
+
+        function onWindowResize() {
+            updateLayoutViewSizes();
+            applyLayoutProgress(layoutState.progress);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            if (layoutState.animating) {
+                const t = Math.min(1, (now - layoutState.start) / layoutState.duration);
+                const ease = 1 - Math.pow(1 - t, 3);
+                const progress = layoutState.from + (layoutState.target - layoutState.from) * ease;
+                applyLayoutProgress(progress);
+                if (t >= 1) {
+                    layoutState.animating = false;
+                }
+            }
+            pixels.forEach(group => {
+                if (!group.userData.isAnimating) return;
+
+                const elapsed = now - group.userData.animStart - (group.userData.animDelay || 0);
+                if (elapsed < 0) return;
+                const duration = group.userData.animDuration || FLIP_DURATION;
+                const t = Math.min(1, elapsed / duration);
+                const ease = 1 - Math.pow(1 - t, 3);
+
+                group.rotation.x = group.userData.startRotationX + group.userData.rotationDelta * ease;
+
+                const startLevel = group.userData.startOn ? 1 : 0;
+                const endLevel = group.userData.endOn ? 1 : 0;
+                const level = startLevel + (endLevel - startLevel) * ease;
+                applyMaterialState(group, level);
+
+                if (t >= 1) {
+                    group.rotation.x = group.userData.targetRotationX;
+                    group.userData.currentOn = group.userData.endOn;
+                    group.userData.faceIndex = group.userData.targetFace;
+                    group.userData.isAnimating = false;
+                    applyMaterialState(group, group.userData.currentOn ? 1 : 0, true);
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
