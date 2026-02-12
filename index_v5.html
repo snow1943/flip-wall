@@ -133,7 +133,8 @@
 
         const FLIP_ANGLE = (Math.PI * 2) / 3;
         const FLIP_DURATION = 320;
-        const STAGGER_MS = 4;
+        const ROW_STAGGER_MS = 14;
+        const COL_STAGGER_MS = 4;
         const LAYOUT_DURATION = 700;
 
         const layoutState = {
@@ -147,7 +148,7 @@
             expandedView: 14 * (cols / compactCols)
         };
 
-        const ON_EMISSIVE = 0.45;
+        const ON_EMISSIVE = 0.0;
         const OFF_EMISSIVE = 0.0;
 
         let globalOnFaceIndex = 0;
@@ -497,7 +498,7 @@
 
             button.addEventListener('click', () => {
                 const idx = Number.parseInt(select.value, 10);
-                startPlaylist(Number.isNaN(idx) ? 0 : idx);
+                resetAndStart(Number.isNaN(idx) ? 0 : idx);
             });
         }
 
@@ -660,13 +661,13 @@
             for (let i = 0; i < group.userData.plateMaterials.length; i++) {
                 const material = group.userData.plateMaterials[i];
                 material.color.copy(ON_COLORS[i]);
-                material.emissive.copy(material.color);
+                material.emissive.set(0x000000);
                 material.emissiveIntensity = emissive;
                 if (immediate) material.needsUpdate = true;
             }
 
             group.userData.innerMaterial.color.set(innerParams.color);
-            group.userData.innerMaterial.emissive.copy(group.userData.innerMaterial.color);
+            group.userData.innerMaterial.emissive.set(0x000000);
             group.userData.innerMaterial.emissiveIntensity = emissive * 0.6;
         }
 
@@ -860,7 +861,7 @@
             group.userData.targetFace = targetFace;
             group.userData.isAnimating = steps > 0 || startOn !== endOn;
             group.userData.animStart = performance.now();
-            group.userData.animDelay = (row * cols + col) * STAGGER_MS;
+            group.userData.animDelay = row * ROW_STAGGER_MS + col * COL_STAGGER_MS;
             group.userData.animDuration = Math.max(FLIP_DURATION, FLIP_DURATION * steps);
             group.userData.startRotationX = group.rotation.x;
             group.userData.rotationDelta = FLIP_ANGLE * steps;
@@ -874,12 +875,35 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        function makeEmptyGrid() {
+            return Array.from({ length: rows }, () => Array(cols).fill(0));
+        }
+
         async function transitionLayout(expand) {
             if ((expand && layoutState.target === 1) || (!expand && layoutState.target === 0)) {
                 if (!layoutState.animating) return;
             }
             setLayout(expand, false);
             await delay(layoutState.duration);
+        }
+
+        async function resetAndStart(startIndex) {
+            playlistRunId += 1;
+            const resetId = playlistRunId;
+
+            pixels.forEach(group => {
+                group.userData.isAnimating = false;
+            });
+
+            if (layoutState.progress !== 0) {
+                setLayout(false, false);
+                await delay(layoutState.duration);
+                if (resetId !== playlistRunId) return;
+            }
+
+            globalOnFaceIndex = 1;
+            applyGrid(makeEmptyGrid(), true);
+            startPlaylist(startIndex);
         }
 
         async function playItem(item) {
