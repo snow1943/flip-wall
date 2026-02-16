@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>金色珠帘光柱</title>
+  <style>
+    :root {
+      --bg-top: #060203;
+      --bg-bottom: #220900;
+      --gold-1: #ffd364;
+      --gold-2: #ffad32;
+      --gold-3: #fff0bf;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 84%, rgba(255, 186, 58, 0.22), transparent 40%),
+        radial-gradient(circle at 50% 112%, rgba(255, 223, 146, 0.2), transparent 46%),
+        linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+      font-family: "STKaiti", "Kaiti SC", "KaiTi", "Songti SC", serif;
+    }
+
+    .scene {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      perspective: 1500px;
+      perspective-origin: center center;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .stars,
+    .stars::before,
+    .stars::after {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      z-index: 1;
+    }
+
+    .stars {
+      background-image: radial-gradient(circle, rgba(255, 246, 224, 0.75) 0 1px, transparent 1.2px);
+      background-size: 88px 88px;
+      opacity: 0.22;
+      animation: drift 28s linear infinite;
+    }
+
+    .stars::before {
+      background-image: radial-gradient(circle, rgba(255, 214, 128, 0.86) 0 1px, transparent 1.2px);
+      background-size: 62px 62px;
+      opacity: 0.2;
+      animation: drift 18s linear infinite reverse;
+    }
+
+    .stars::after {
+      background-image: radial-gradient(circle, rgba(255, 252, 240, 0.92) 0 1.8px, transparent 2px);
+      background-size: 180px 180px;
+      opacity: 0.16;
+      animation: twinkle 3.3s ease-in-out infinite;
+    }
+
+    .beam-3d {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: clamp(180px, 14vw, 260px);
+      height: min(86vh, 820px);
+      transform: translate(-50%, -50%);
+      transform-style: preserve-3d;
+      z-index: 3;
+      user-select: none;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    .beam-3d.dragging {
+      cursor: grabbing;
+    }
+
+    .beam-shell {
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      border: 2px solid rgba(255, 236, 177, 0.92);
+      box-shadow:
+        0 0 22px rgba(255, 189, 58, 0.8),
+        0 0 64px rgba(255, 151, 22, 0.45),
+        inset 0 0 16px rgba(255, 240, 191, 0.55),
+        inset 0 -42px 66px rgba(145, 65, 0, 0.44);
+      background:
+        linear-gradient(180deg, rgba(255, 221, 130, 0.08), rgba(255, 173, 55, 0.15) 70%, rgba(255, 220, 130, 0.12)),
+        linear-gradient(90deg, rgba(255, 244, 206, 0.56), rgba(255, 212, 101, 0.05) 9%, rgba(255, 212, 101, 0.05) 91%, rgba(255, 244, 206, 0.56));
+      transform: translateZ(0);
+      pointer-events: none;
+    }
+
+    .beam-highlight {
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(255, 252, 230, 0), rgba(255, 248, 214, 0.55), rgba(255, 252, 230, 0));
+      mix-blend-mode: screen;
+      opacity: 0.5;
+      animation: sweep 5.2s linear infinite;
+      transform: translateZ(20px);
+      pointer-events: none;
+    }
+
+    .curtain {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      top: 5px;
+      bottom: 5px;
+      border-radius: 8px;
+      overflow: hidden;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    .curtain.depth-back {
+      transform: translateZ(-58px) scale(1.04);
+      opacity: 0.64;
+      filter: blur(0.6px);
+    }
+
+    .curtain.depth-mid {
+      transform: translateZ(0px) scale(1);
+      opacity: 0.9;
+    }
+
+    .curtain.depth-front {
+      transform: translateZ(58px) scale(0.965);
+      opacity: 0.95;
+      filter: blur(0.15px);
+    }
+
+    .curtain canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .poem {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) translateZ(78px);
+      writing-mode: vertical-rl;
+      text-orientation: upright;
+      white-space: nowrap;
+      letter-spacing: 0.15em;
+      font-size: clamp(42px, 3.8vw, 70px);
+      line-height: 1;
+      color: rgba(255, 230, 129, 0.98);
+      text-shadow:
+        0 0 5px rgba(255, 245, 206, 0.95),
+        0 0 16px rgba(255, 188, 56, 0.86),
+        0 0 28px rgba(255, 147, 20, 0.75);
+      pointer-events: none;
+      z-index: 4;
+      filter: saturate(1.15);
+    }
+
+    .mist {
+      position: absolute;
+      left: -8%;
+      right: -8%;
+      bottom: -18%;
+      height: 34%;
+      z-index: 5;
+      pointer-events: none;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(255, 226, 151, 0.84) 0,
+        rgba(255, 203, 109, 0.38) 35%,
+        rgba(255, 186, 94, 0) 72%
+      );
+      filter: blur(14px);
+      animation: fog 6.4s ease-in-out infinite;
+    }
+
+    .vignette {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+      background: radial-gradient(circle at center, transparent 52%, rgba(0, 0, 0, 0.48) 92%);
+    }
+
+    .hint {
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 7;
+      color: rgba(255, 223, 148, 0.64);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      pointer-events: none;
+      text-shadow: 0 0 8px rgba(255, 169, 27, 0.35);
+    }
+
+    @keyframes sweep {
+      0% {
+        transform: translateY(-82%) translateZ(20px);
+      }
+      100% {
+        transform: translateY(92%) translateZ(20px);
+      }
+    }
+
+    @keyframes drift {
+      from {
+        transform: translateY(0);
+      }
+      to {
+        transform: translateY(16px);
+      }
+    }
+
+    @keyframes twinkle {
+      0%,
+      100% {
+        opacity: 0.12;
+      }
+      50% {
+        opacity: 0.24;
+      }
+    }
+
+    @keyframes fog {
+      0%,
+      100% {
+        opacity: 0.84;
+        transform: translateY(0);
+      }
+      50% {
+        opacity: 1;
+        transform: translateY(-8px);
+      }
+    }
+
+    @media (max-width: 780px) {
+      .beam-3d {
+        width: clamp(160px, 30vw, 220px);
+        height: min(82vh, 760px);
+      }
+
+      .poem {
+        font-size: clamp(34px, 6.2vw, 54px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="scene" id="scene">
+    <div class="stars" aria-hidden="true"></div>
+
+    <section class="beam-3d" id="beam3d" aria-label="金色珠帘光柱">
+      <div class="beam-shell"></div>
+
+      <div class="curtain depth-back"><canvas id="curtainBack"></canvas></div>
+      <div class="curtain depth-mid"><canvas id="curtainMid"></canvas></div>
+      <div class="curtain depth-front"><canvas id="curtainFront"></canvas></div>
+
+      <div class="beam-highlight"></div>
+      <div class="poem">少年心事当拿云</div>
+    </section>
+
+    <div class="mist" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="hint" id="hint">拖拽可 3D 移动视角，滚轮可拉近/拉远</div>
+  </main>
+
+  <script>
+    const beam3d = document.getElementById("beam3d");
+    const hint = document.getElementById("hint");
+
+    const layers = [
+      { canvas: document.getElementById("curtainBack"), density: 68, speedScale: 0.86, blurGlow: 1.0 },
+      { canvas: document.getElementById("curtainMid"), density: 88, speedScale: 1.0, blurGlow: 1.1 },
+      { canvas: document.getElementById("curtainFront"), density: 56, speedScale: 1.22, blurGlow: 1.2 },
+    ];
+
+    const layerState = [];
+
+    let rx = -3;
+    let ry = 0;
+    let zoom = 0;
+    let targetRx = -3;
+    let targetRy = 0;
+    let targetZoom = 0;
+
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    function hashNoise(n) {
+      return (Math.sin(n * 43758.5453123) + 1) * 0.5;
+    }
+
+    function createLaneSet(count, width, height, speedScale, seedBase) {
+      const lanes = [];
+      for (let i = 0; i < count; i++) {
+        const seed = seedBase + i * 1.71;
+        const x = 0.05 + hashNoise(seed + 1.2) * 0.9;
+
+        lanes.push({
+          x,
+          width: 0.5 + hashNoise(seed + 2.1) * 2.8,
+          speed: (36 + hashNoise(seed + 3.7) * 112) * speedScale,
+          spacing: 48 + hashNoise(seed + 4.2) * 170,
+          offset: hashNoise(seed + 5.9) * (height + 220),
+          swing: 0.2 + hashNoise(seed + 7.3) * 1.25,
+          swingFreq: 0.8 + hashNoise(seed + 8.8) * 2.4,
+          alpha: 0.12 + hashNoise(seed + 11.1) * 0.5,
+          tail: 16 + hashNoise(seed + 6.4) * 82,
+          beads: 4 + Math.floor(hashNoise(seed + 9.5) * 5),
+          grain: 0.4 + hashNoise(seed + 12.3) * 0.9,
+        });
+      }
+      return lanes;
+    }
+
+    function resizeLayer(layer, idx) {
+      const rect = layer.canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      layer.canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      layer.canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      layer.canvas.style.width = `${rect.width}px`;
+      layer.canvas.style.height = `${rect.height}px`;
+
+      const ctx = layer.canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      layerState[idx] = {
+        ctx,
+        w: rect.width,
+        h: rect.height,
+        lanes: createLaneSet(layer.density, rect.width, rect.height, layer.speedScale, 100 + idx * 500),
+      };
+    }
+
+    function resizeAll() {
+      layers.forEach((layer, idx) => resizeLayer(layer, idx));
+    }
+
+    function drawFilament(ctx, x, y0, y1, width, alpha, hueShift) {
+      const grad = ctx.createLinearGradient(x, y0, x, y1);
+      grad.addColorStop(0, `rgba(255, 245, 214, ${alpha * 0.26})`);
+      grad.addColorStop(0.4, `rgba(${255 - hueShift}, ${200 + hueShift}, 102, ${alpha * 0.6})`);
+      grad.addColorStop(1, "rgba(255, 170, 54, 0)");
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x, y0);
+      ctx.lineTo(x, y1);
+      ctx.stroke();
+    }
+
+    function drawCurtainLayer(state, t, layerCfg) {
+      const { ctx, w, h, lanes } = state;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalCompositeOperation = "lighter";
+
+      for (let i = 0; i < lanes.length; i++) {
+        const lane = lanes[i];
+        const baseX = lane.x * w;
+
+        const longWave = Math.sin(t * 0.0012 * lane.swingFreq + i * 0.47) * lane.swing;
+        const x = baseX + longWave;
+
+        const subtleAlpha = lane.alpha * 0.24;
+        drawFilament(ctx, x, 0, h, lane.width * 0.34, subtleAlpha, 16);
+
+        for (let j = 0; j < lane.beads; j++) {
+          const motion = (t * 0.001 * lane.speed + lane.offset + j * lane.spacing) % (h + lane.tail + 32);
+          const y = h - motion;
+          if (y < -lane.tail || y > h + lane.tail) continue;
+
+          const localWobble = Math.sin((y * 0.02 + t * 0.0016) * lane.swingFreq + i * 1.2 + j * 0.9) * lane.swing * 1.3;
+          const bx = x + localWobble;
+          const tail = lane.tail * (0.7 + Math.sin(t * 0.0011 + i * 0.3 + j) * 0.35 + layerCfg.blurGlow * 0.1);
+          const dynWidth = lane.width * (0.55 + Math.sin(t * 0.002 + i + j) * 0.25 + layerCfg.blurGlow * 0.12);
+
+          const grad = ctx.createLinearGradient(bx, y - tail * 0.14, bx, y + tail);
+          grad.addColorStop(0, `rgba(255, 251, 231, ${lane.alpha * 0.9})`);
+          grad.addColorStop(0.33, `rgba(255, 222, 133, ${lane.alpha})`);
+          grad.addColorStop(0.72, `rgba(255, 184, 71, ${lane.alpha * 0.56})`);
+          grad.addColorStop(1, "rgba(255, 160, 50, 0)");
+
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = dynWidth;
+          ctx.beginPath();
+          ctx.moveTo(bx, y);
+          ctx.lineTo(bx, y + tail);
+          ctx.stroke();
+
+          const sparkleSeed = (i + 1) * (j + 7) * lane.grain + Math.floor(t * 0.03);
+          const sparkleHit = hashNoise(sparkleSeed);
+          if (sparkleHit > 0.88) {
+            const r = 0.8 + sparkleHit * 2.6;
+            const glow = ctx.createRadialGradient(bx, y, 0, bx, y, r * 5.2);
+            glow.addColorStop(0, `rgba(255, 248, 225, ${lane.alpha * 1.2})`);
+            glow.addColorStop(0.45, `rgba(255, 214, 124, ${lane.alpha * 0.75})`);
+            glow.addColorStop(1, "rgba(255, 168, 58, 0)");
+
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(bx, y, r * 5.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    function animate(t) {
+      const autoYaw = Math.sin(t * 0.00035) * 1.6;
+      const autoPitch = -3 + Math.cos(t * 0.00028) * 0.8;
+
+      if (!dragging) {
+        targetRy = autoYaw;
+        targetRx = autoPitch;
+      }
+
+      rx += (targetRx - rx) * 0.09;
+      ry += (targetRy - ry) * 0.09;
+      zoom += (targetZoom - zoom) * 0.12;
+
+      beam3d.style.transform = `translate(-50%, -50%) rotateX(${rx.toFixed(3)}deg) rotateY(${ry.toFixed(3)}deg) translateZ(${zoom.toFixed(2)}px)`;
+
+      for (let i = 0; i < layerState.length; i++) {
+        drawCurtainLayer(layerState[i], t + i * 777.0, layers[i]);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    beam3d.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      beam3d.classList.add("dragging");
+      lastX = e.clientX;
+      lastY = e.clientY;
+      beam3d.setPointerCapture(e.pointerId);
+    });
+
+    beam3d.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      targetRy = Math.max(-24, Math.min(24, targetRy + dx * 0.08));
+      targetRx = Math.max(-16, Math.min(10, targetRx - dy * 0.06));
+    });
+
+    function stopDragging(e) {
+      dragging = false;
+      beam3d.classList.remove("dragging");
+      if (e && beam3d.hasPointerCapture(e.pointerId)) beam3d.releasePointerCapture(e.pointerId);
+    }
+
+    beam3d.addEventListener("pointerup", stopDragging);
+    beam3d.addEventListener("pointercancel", stopDragging);
+    beam3d.addEventListener("pointerleave", (e) => {
+      if (dragging && (e.buttons & 1) === 0) stopDragging(e);
+    });
+
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        targetZoom = Math.max(-120, Math.min(120, targetZoom - e.deltaY * 0.08));
+      },
+      { passive: true }
+    );
+
+    window.addEventListener("resize", resizeAll);
+
+    window.addEventListener("error", (event) => {
+      if (hint) hint.textContent = `脚本错误: ${event.message}`;
+    });
+
+    resizeAll();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
