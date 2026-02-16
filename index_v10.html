@@ -4,12 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 像素显示墙 - 数字与文字</title>
+    <title>3D 像素显示墙 - 金属质感版</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #0a0a0a;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
@@ -62,8 +62,9 @@
 
 <body>
     <div id="ui">
-        <h2>3D 像素显示墙</h2>
+        <h2>3D 像素显示墙 - 金属质感版</h2>
         <p>自动轮换显示：10 到 1 倒计时，然后显示 HELLO / WORLD</p>
+        <p>银 / 金 / 铜 三色金属面</p>
     </div>
 
     <div id="control-panel">
@@ -75,12 +76,14 @@
     <!-- Three.js Core -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <!-- dat.GUI -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
 
     <script>
         let scene, camera, renderer;
-        let ambientLight, hemiLight, spotLight, fillLight, rimLight, keyLight;
+        let spotLight, fillLight, ambientLight, hemiLight, controls;
+        let envMapLoaded = false;
         const pixels = [];
         const rows = 12;
         const cols = 32;
@@ -104,56 +107,81 @@
             z: 0
         };
 
+        // 金属材质参数
+        const materialParams = {
+            // 银色面
+            color1: '#c0c5ce',
+            roughness1: 0.06,
+            metalness1: 1.0,
+            clearcoat1: 1.0,
+            envMapIntensity1: 3.0,
+
+            // 金色面
+            color2: '#d4af37',
+            roughness2: 0.06,
+            metalness2: 1.0,
+            clearcoat2: 1.0,
+            envMapIntensity2: 3.0,
+
+            // 铜色面
+            color3: '#b87333',
+            roughness3: 0.06,
+            metalness3: 1.0,
+            clearcoat3: 1.0,
+            envMapIntensity3: 3.0,
+        };
+
+        // 光源颜色参数
+        const lightColors = {
+            useRainbow: true,
+            pointLightIntensity: 0.5,
+            rainbowHue1: 0.0,
+            rainbowHue2: 0.55,
+            rainbowHue3: 0.15,
+            rainbowHue4: 0.08,
+            rainbowHue5: 0.3,
+            rainbowHue6: 0.75,
+        };
+
         const config = {
             initRotationX: Math.PI / 2,
             initRotationY: 0.0,
             initRotationZ: 0.0,
-            gap: 0.057,
-            backgroundColor: '#20252c',
-            exposure: 1.03,
+            gap: 0.02,
+            scale: 1.0,
+            backgroundColor: '#1a1a1a',
+            exposure: 1.5,
 
-            camX: 0, camY: 0, camZ: 20,
-            viewSize: 14,
+            camX: 0, camY: 0, camZ: 25,
+            fov: 50,
 
             spotLightX: 5, spotLightY: 10, spotLightZ: 30,
-            spotLightIntensity: 1.22,
+            spotLightIntensity: 1.0,
             spotLightAngle: 0.23,
             spotLightPenumbra: 0.3,
 
             fillLightX: -5, fillLightY: 2, fillLightZ: 20,
-            fillLightIntensity: 0.24,
+            fillLightIntensity: 0.6,
 
-            ambientIntensity: 0.08,
-            hemiIntensity: 0.11,
+            ambientIntensity: 0.3,
+            hemiIntensity: 0.25,
 
             rimLightX: -14, rimLightY: 8, rimLightZ: -16,
-            rimLightIntensity: 1.2,
+            rimLightIntensity: 1.5,
 
             keyLightX: 10, keyLightY: 7, keyLightZ: 16,
-            keyLightIntensity: 0.35,
-
-            colorSilver: '#9ea5af',
-            colorGold: '#d4af37',
-            colorCopper: '#b87333',
-
-            plateRoughness: 0.12,
-            plateMetalness: 0.98,
-            plateEnvMapIntensity: 1.9,
-            plateClearcoat: 0.55,
-            plateClearcoatRoughness: 0.1,
-
-            fallbackStripeStrongAlpha: 0.56,
-            fallbackStripeSoftAlpha: 0.22
+            keyLightIntensity: 0.8
         };
 
         let plateGeometry, innerGeometry;
         let baseMaterials = [];
         let baseInnerMaterial;
 
+        // 金属质感颜色
         const ON_COLORS = [
-            new THREE.Color(0x9ea5af), // metallic silver (default, darker)
-            new THREE.Color(0xd4af37), // metallic gold
-            new THREE.Color(0xb87333)  // metallic copper
+            new THREE.Color(materialParams.color1),
+            new THREE.Color(materialParams.color2),
+            new THREE.Color(materialParams.color3)
         ];
 
         const FLIP_ANGLE = (Math.PI * 2) / 3;
@@ -377,95 +405,145 @@
             scene.background = new THREE.Color(config.backgroundColor);
 
             const aspect = window.innerWidth / window.innerHeight;
-            const viewSize = config.viewSize;
-            camera = new THREE.OrthographicCamera(
-                -viewSize * aspect / 2, viewSize * aspect / 2,
-                viewSize / 2, -viewSize / 2,
-                0.1, 1000
-            );
+            camera = new THREE.PerspectiveCamera(config.fov, aspect, 0.1, 1000);
             camera.position.set(config.camX, config.camY, config.camZ);
             camera.lookAt(0, 0, 0);
 
+            // 创建渲染器
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.outputEncoding = THREE.sRGBEncoding;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = config.exposure;
-            renderer.physicallyCorrectLights = false;
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // 鼠标控制
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enablePan = true;
+            controls.enableZoom = true;
+            controls.minDistance = 10;
+            controls.maxDistance = 60;
+            controls.minPolarAngle = 0;
+            controls.maxPolarAngle = Math.PI;
             document.body.appendChild(renderer.domElement);
 
-            ambientLight = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
+            // 灯光设置 - 参考 prism_v3
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
             scene.add(ambientLight);
-            hemiLight = new THREE.HemisphereLight(0xe8f1ff, 0x2e343d, config.hemiIntensity);
-            scene.add(hemiLight);
 
-            spotLight = new THREE.SpotLight(0xffffff, config.spotLightIntensity);
-            spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
-            spotLight.angle = config.spotLightAngle;
-            spotLight.penumbra = config.spotLightPenumbra;
-            spotLight.decay = 1.5;
-            spotLight.distance = 100;
-            spotLight.castShadow = true;
-            spotLight.shadow.mapSize.width = 2048;
-            spotLight.shadow.mapSize.height = 2048;
-            spotLight.shadow.bias = -0.0001;
-            scene.add(spotLight);
-
-            fillLight = new THREE.DirectionalLight(0xd8e3ff, config.fillLightIntensity);
-            fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
-            scene.add(fillLight);
-
-            rimLight = new THREE.DirectionalLight(0xf2f7ff, config.rimLightIntensity);
-            rimLight.position.set(config.rimLightX, config.rimLightY, config.rimLightZ);
-            scene.add(rimLight);
-
-            keyLight = new THREE.DirectionalLight(0xffffff, config.keyLightIntensity);
-            keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
+            // 主光源 - 强光
+            const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+            keyLight.position.set(5, 8, 5);
+            keyLight.castShadow = true;
+            keyLight.shadow.mapSize.width = 2048;
+            keyLight.shadow.mapSize.height = 2048;
+            keyLight.shadow.bias = -0.001;
             scene.add(keyLight);
 
-            loadEnvironment(() => {
-                initResources();
+            // 补光 - 冷色调
+            fillLight = new THREE.DirectionalLight(0xaaccff, 0.8);
+            fillLight.position.set(-5, 2, -5);
+            scene.add(fillLight);
 
-                for (let i = 0; i < rows; i++) {
-                    for (let j = 0; j < cols; j++) {
-                        const prism = createPrismInstance();
+            // 轮廓光 - 暖色调
+            const rimLight = new THREE.DirectionalLight(0xffddaa, 1.0);
+            rimLight.position.set(-3, -5, 8);
+            scene.add(rimLight);
 
-                        prism.userData.gridRow = i;
-                        prism.userData.gridCol = j;
+            // 背光
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            backLight.position.set(0, -3, -8);
+            scene.add(backLight);
 
-                        prism.userData.baseRotationX = config.initRotationX;
-                        prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
-                        prism.userData.targetRotationX = config.initRotationX;
-                        prism.userData.startRotationX = config.initRotationX;
-                        prism.userData.currentOn = false;
-                        prism.userData.targetOn = false;
-                        prism.userData.isAnimating = false;
+            // 聚光灯
+            spotLight = new THREE.SpotLight(0xffffff, 1.2);
+            spotLight.position.set(0, 15, 20);
+            spotLight.angle = 0.4;
+            spotLight.penumbra = 0.3;
+            spotLight.decay = 1.5;
+            spotLight.distance = 50;
+            scene.add(spotLight);
 
-                        scene.add(prism);
-                        pixels.push(prism);
-                    }
-                }
+            // 彩色点光源 - 参考 prism_v3
+            const positions = [
+                { x: 4, y: 3, z: 3 },
+                { x: -4, y: -2, z: 3 },
+                { x: 3, y: -3, z: -2 },
+                { x: -3, y: 4, z: 2 },
+                { x: 2, y: 1, z: -4 },
+                { x: -2, y: -1, z: 4 },
+                { x: 0, y: 5, z: 0 },
+                { x: 5, y: 0, z: -3 }
+            ];
 
-                initGUI();
-                initControlPanel();
+            // 保存光源引用以便更新
+            window.pointLights = [];
+            window.pointLightPositions = positions;
 
-                updateLayoutViewSizes();
-                computeLayoutData();
-                setLayout(false, true);
+            updatePointLights();
 
-                globalOnFaceIndex = 1;
-                applyGrid(renderTextToGrid('10', compactCols), true);
-                startPlaylist(0);
-
-                window.addEventListener('resize', onWindowResize);
-                animate();
-            });
+            // 加载环境贴图
+            loadEnvironment();
         }
 
-        function loadEnvironment(onComplete) {
+        function hslToHex(h, s, l) {
+            l = Math.max(0, Math.min(1, l));
+            const c = (1 - Math.abs(2 * l - 1)) * s;
+            const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+            const m = l - c / 2;
+            let r = 0, g = 0, b = 0;
+            if (h < 1/6) { r = c; g = x; b = 0; }
+            else if (h < 2/6) { r = x; g = c; b = 0; }
+            else if (h < 3/6) { r = 0; g = c; b = x; }
+            else if (h < 4/6) { r = 0; g = x; b = c; }
+            else if (h < 5/6) { r = x; g = 0; b = c; }
+            else { r = c; g = 0; b = x; }
+            return new THREE.Color(r + m, g + m, b + m);
+        }
+
+        function updatePointLights() {
+            if (!window.pointLights || !scene) return;
+
+            window.pointLights.forEach(light => scene.remove(light));
+            window.pointLights = [];
+
+            const positions = window.pointLightPositions;
+            const intensity = lightColors.pointLightIntensity;
+
+            if (lightColors.useRainbow) {
+                const hues = [
+                    lightColors.rainbowHue1,
+                    lightColors.rainbowHue2,
+                    lightColors.rainbowHue3,
+                    lightColors.rainbowHue4,
+                    lightColors.rainbowHue5,
+                    lightColors.rainbowHue6,
+                    (lightColors.rainbowHue1 + 0.5) % 1,
+                    (lightColors.rainbowHue2 + 0.5) % 1
+                ];
+                for (let i = 0; i < positions.length; i++) {
+                    const color = hslToHex(hues[i], 0.7, 0.6);
+                    const light = new THREE.PointLight(color, intensity, 25);
+                    light.position.set(positions[i].x, positions[i].y, positions[i].z);
+                    scene.add(light);
+                    window.pointLights.push(light);
+                }
+            } else {
+                const silverColors = [0xffffff, 0xe8e8e8, 0xd0d0d0, 0xc0c0c0, 0xb8b8b8, 0xaaaaaa, 0xcccccc, 0xeeeeee];
+                for (let i = 0; i < positions.length; i++) {
+                    const light = new THREE.PointLight(silverColors[i], intensity, 25);
+                    light.position.set(positions[i].x, positions[i].y, positions[i].z);
+                    scene.add(light);
+                    window.pointLights.push(light);
+                }
+            }
+        }
+
+        function loadEnvironment() {
             const pmremGenerator = new THREE.PMREMGenerator(renderer);
             pmremGenerator.compileEquirectangularShader();
 
@@ -478,16 +556,33 @@
                     scene.environment = envMap;
                     hdrTexture.dispose();
                     pmremGenerator.dispose();
-                    onComplete();
+                    envMapLoaded = true;
+
+                    // 环境加载后初始化像素
+                    initResources();
+                    createAllPixels();
                 },
                 undefined,
                 () => {
+                    // 加载失败，使用 fallback 环境
                     scene.environment = createFallbackEnvironment(pmremGenerator);
                     pmremGenerator.dispose();
-                    onComplete();
+                    envMapLoaded = true;
+
+                    initResources();
+                    createAllPixels();
                 }
             );
         }
+
+        // fallback 环境参数
+        const envParams = {
+            bgBrightness: 0.3,
+            lightBrightness: 0.35,
+            useRainbowEnv: false,
+            envHue1: 0,
+            envHue2: 0.5,
+        };
 
         function createFallbackEnvironment(pmremGenerator) {
             const canvas = document.createElement('canvas');
@@ -495,20 +590,73 @@
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
+            // 深灰色渐变背景 - 降低亮度
+            const bgLevel = Math.floor(30 + 40 * envParams.bgBrightness);
             const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            bg.addColorStop(0.0, '#6f7886');
-            bg.addColorStop(0.35, '#aeb8c8');
-            bg.addColorStop(1.0, '#2a303a');
+            bg.addColorStop(0.0, `rgb(${bgLevel}, ${bgLevel}, ${bgLevel + 4})`);
+            bg.addColorStop(0.2, `rgb(${bgLevel + 16}, ${bgLevel + 16}, ${bgLevel + 20})`);
+            bg.addColorStop(0.4, `rgb(${bgLevel + 30}, ${bgLevel + 30}, ${bgLevel + 34})`);
+            bg.addColorStop(0.6, `rgb(${bgLevel + 30}, ${bgLevel + 30}, ${bgLevel + 34})`);
+            bg.addColorStop(0.8, `rgb(${bgLevel + 16}, ${bgLevel + 16}, ${bgLevel + 20})`);
+            bg.addColorStop(1.0, `rgb(${bgLevel}, ${bgLevel}, ${bgLevel + 4})`);
             ctx.fillStyle = bg;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            ctx.globalAlpha = config.fallbackStripeStrongAlpha;
-            ctx.fillStyle = '#f2f6ff';
-            ctx.fillRect(180, 0, 60, canvas.height);
-            ctx.fillRect(430, 0, 90, canvas.height);
-            ctx.fillRect(760, 0, 50, canvas.height);
-            ctx.globalAlpha = config.fallbackStripeSoftAlpha;
-            ctx.fillRect(0, 150, canvas.width, 60);
+            // 使用径向渐变创建柔和的光晕 - 降低亮度
+            const intensity = envParams.lightBrightness;
+            const lights = [
+                { x: 150, y: 256, r: 280, intensity: intensity },
+                { x: 400, y: 180, r: 200, intensity: intensity * 0.7 },
+                { x: 400, y: 350, r: 220, intensity: intensity * 0.6 },
+                { x: 650, y: 256, r: 300, intensity: intensity * 0.9 },
+                { x: 880, y: 120, r: 180, intensity: intensity * 0.5 },
+                { x: 880, y: 400, r: 200, intensity: intensity * 0.55 },
+                { x: 1024, y: 256, r: 250, intensity: intensity * 0.7 }
+            ];
+
+            lights.forEach(light => {
+                const gradient = ctx.createRadialGradient(
+                    light.x, light.y, 0,
+                    light.x, light.y, light.r
+                );
+                gradient.addColorStop(0, `rgba(255, 255, 255, ${light.intensity})`);
+                gradient.addColorStop(0.3, `rgba(245, 245, 250, ${light.intensity * 0.6})`);
+                gradient.addColorStop(0.6, `rgba(220, 220, 230, ${light.intensity * 0.25})`);
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            });
+
+            // 添加柔和的散点光晕
+            for (let i = 0; i < 60; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const radius = Math.random() * 100 + 50;
+                const starIntensity = (Math.random() * 0.4 + 0.1) * intensity;
+
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                gradient.addColorStop(0, `rgba(255, 255, 255, ${starIntensity})`);
+                gradient.addColorStop(0.5, `rgba(240, 240, 245, ${starIntensity * 0.3})`);
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // 添加柔和的水平光晕层
+            for (let i = 0; i < 5; i++) {
+                const y = Math.random() * canvas.height;
+                const height = Math.random() * 150 + 50;
+                const gradient = ctx.createLinearGradient(0, y - height/2, 0, y + height/2);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+                gradient.addColorStop(0.5, `rgba(250, 250, 255, ${Math.random() * 0.15 + 0.05})`);
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
             ctx.globalAlpha = 1.0;
 
             const texture = new THREE.CanvasTexture(canvas);
@@ -517,6 +665,42 @@
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             texture.dispose();
             return envMap;
+        }
+
+        function createAllPixels() {
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const prism = createPrismInstance();
+
+                    prism.userData.gridRow = i;
+                    prism.userData.gridCol = j;
+
+                    prism.userData.baseRotationX = config.initRotationX;
+                    prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
+                    prism.userData.targetRotationX = config.initRotationX;
+                    prism.userData.startRotationX = config.initRotationX;
+                    prism.userData.currentOn = false;
+                    prism.userData.targetOn = false;
+                    prism.userData.isAnimating = false;
+
+                    scene.add(prism);
+                    pixels.push(prism);
+                }
+            }
+
+            initGUI();
+            initControlPanel();
+
+            updateLayoutViewSizes();
+            computeLayoutData();
+            setLayout(false, true);
+
+            globalOnFaceIndex = 1;
+            applyGrid(renderTextToGrid('10', compactCols), true);
+            startPlaylist(0);
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
         }
 
         function initGUI() {
@@ -539,20 +723,57 @@
             folder.add(config, 'initRotationX', -Math.PI, Math.PI).step(0.01).name('X 轴角度').onChange(updateRotations);
             folder.add(config, 'initRotationY', -Math.PI, Math.PI).step(0.01).name('Y 轴角度').onChange(updateRotations);
             folder.add(config, 'gap', 0.0, 0.5).step(0.001).name('行列间距').onChange(updatePositions);
+            folder.add(config, 'scale', 0.3, 2.0).step(0.01).name('整体缩放').onChange(() => {
+                pixels.forEach(group => {
+                    const baseScale = group.userData.compactScale !== undefined ?
+                        (group.userData.compactScale + (group.userData.expandedScale - group.userData.compactScale) * layoutState.progress) : 1;
+                    group.scale.set(baseScale * config.scale, baseScale * config.scale, baseScale * config.scale);
+                });
+            });
             folder.open();
 
             const camFolder = gui.addFolder('相机视角设置');
             const updateCamera = () => {
                 camera.position.set(config.camX, config.camY, config.camZ);
+                camera.fov = config.fov;
+                camera.updateProjectionMatrix();
                 camera.lookAt(0, 0, 0);
-                updateLayoutViewSizes();
-                applyLayoutProgress(layoutState.progress);
             };
             camFolder.add(config, 'camX', -50, 50).name('位置 X').onChange(updateCamera);
             camFolder.add(config, 'camY', -50, 50).name('位置 Y').onChange(updateCamera);
-            camFolder.add(config, 'camZ', 0, 100).name('位置 Z').onChange(updateCamera);
-            camFolder.add(config, 'viewSize', 5, 30).name('缩放 (ViewSize)').onChange(updateCamera);
+            camFolder.add(config, 'camZ', 10, 60).name('位置 Z').onChange(updateCamera);
+            camFolder.add(config, 'fov', 20, 90).name('视角').onChange(updateCamera);
             camFolder.open();
+
+            // 金属材质参数
+            const matFolder = gui.addFolder('金属材质参数');
+            const updateMaterials = () => {
+                ON_COLORS[0].set(materialParams.color1);
+                ON_COLORS[1].set(materialParams.color2);
+                ON_COLORS[2].set(materialParams.color3);
+                pixels.forEach(group => updatePixelMaterial(group));
+            };
+
+            const mat1Folder = matFolder.addFolder('银色面');
+            mat1Folder.addColor(materialParams, 'color1').name('颜色').onChange(updateMaterials);
+            mat1Folder.add(materialParams, 'roughness1', 0.02, 0.3).name('粗糙度').onChange(updateMaterials);
+            mat1Folder.add(materialParams, 'metalness1', 0.8, 1).name('金属度').onChange(updateMaterials);
+            mat1Folder.add(materialParams, 'clearcoat1', 0.3, 1).name('清漆层').onChange(updateMaterials);
+            mat1Folder.add(materialParams, 'envMapIntensity1', 1, 4).name('反射强度').onChange(updateMaterials);
+
+            const mat2Folder = matFolder.addFolder('金色面');
+            mat2Folder.addColor(materialParams, 'color2').name('颜色').onChange(updateMaterials);
+            mat2Folder.add(materialParams, 'roughness2', 0.02, 0.3).name('粗糙度').onChange(updateMaterials);
+            mat2Folder.add(materialParams, 'metalness2', 0.8, 1).name('金属度').onChange(updateMaterials);
+            mat2Folder.add(materialParams, 'clearcoat2', 0.3, 1).name('清漆层').onChange(updateMaterials);
+            mat2Folder.add(materialParams, 'envMapIntensity2', 1, 4).name('反射强度').onChange(updateMaterials);
+
+            const mat3Folder = matFolder.addFolder('铜色面');
+            mat3Folder.addColor(materialParams, 'color3').name('颜色').onChange(updateMaterials);
+            mat3Folder.add(materialParams, 'roughness3', 0.02, 0.3).name('粗糙度').onChange(updateMaterials);
+            mat3Folder.add(materialParams, 'metalness3', 0.8, 1).name('金属度').onChange(updateMaterials);
+            mat3Folder.add(materialParams, 'clearcoat3', 0.3, 1).name('清漆层').onChange(updateMaterials);
+            mat3Folder.add(materialParams, 'envMapIntensity3', 1, 4).name('反射强度').onChange(updateMaterials);
 
             const lightFolder = gui.addFolder('光源设置');
             const updateLights = () => {
@@ -566,61 +787,52 @@
 
                 fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
                 fillLight.intensity = config.fillLightIntensity;
-
-                rimLight.position.set(config.rimLightX, config.rimLightY, config.rimLightZ);
-                rimLight.intensity = config.rimLightIntensity;
-
-                keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
-                keyLight.intensity = config.keyLightIntensity;
             };
 
             lightFolder.add(config, 'spotLightX', -50, 50).name('主光 X').onChange(updateLights);
             lightFolder.add(config, 'spotLightY', -50, 50).name('主光 Y').onChange(updateLights);
             lightFolder.add(config, 'spotLightZ', 0, 100).name('主光 Z').onChange(updateLights);
-            lightFolder.add(config, 'spotLightIntensity', 0, 4).name('主光强度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightIntensity', 0, 2).name('主光强度').onChange(updateLights);
             lightFolder.add(config, 'spotLightAngle', 0, Math.PI / 2).name('光照角度').onChange(updateLights);
             lightFolder.add(config, 'spotLightPenumbra', 0, 1).name('边缘柔化').onChange(updateLights);
 
             lightFolder.add(config, 'fillLightX', -20, 20).name('补光 X').onChange(updateLights);
             lightFolder.add(config, 'fillLightY', -20, 20).name('补光 Y').onChange(updateLights);
             lightFolder.add(config, 'fillLightZ', -20, 20).name('补光 Z').onChange(updateLights);
-            lightFolder.add(config, 'fillLightIntensity', 0, 4).name('补光强度').onChange(updateLights);
-            lightFolder.add(config, 'ambientIntensity', 0, 1.5).name('环境光强度').onChange(updateLights);
-            lightFolder.add(config, 'hemiIntensity', 0, 1.5).name('半球光强度').onChange(updateLights);
-            lightFolder.add(config, 'rimLightX', -30, 30).name('轮廓光 X').onChange(updateLights);
-            lightFolder.add(config, 'rimLightY', -30, 30).name('轮廓光 Y').onChange(updateLights);
-            lightFolder.add(config, 'rimLightZ', -30, 30).name('轮廓光 Z').onChange(updateLights);
-            lightFolder.add(config, 'rimLightIntensity', 0, 4).name('轮廓光强度').onChange(updateLights);
-            lightFolder.add(config, 'keyLightX', -30, 30).name('正补光 X').onChange(updateLights);
-            lightFolder.add(config, 'keyLightY', -30, 30).name('正补光 Y').onChange(updateLights);
-            lightFolder.add(config, 'keyLightZ', -30, 30).name('正补光 Z').onChange(updateLights);
-            lightFolder.add(config, 'keyLightIntensity', 0, 4).name('正补光强度').onChange(updateLights);
+            lightFolder.add(config, 'fillLightIntensity', 0, 2).name('补光强度').onChange(updateLights);
 
-            const renderFolder = gui.addFolder('渲染与背景');
-            renderFolder.add(config, 'exposure', 0.5, 1.8).step(0.01).name('曝光(整体亮度基线)').onChange(updateRenderParams);
-            renderFolder.addColor(config, 'backgroundColor').name('背景色(对比基底)').onChange(updateRenderParams);
-            renderFolder.add(config, 'fallbackStripeStrongAlpha', 0, 0.8).step(0.01).name('Fallback高光(强条纹)').onChange(refreshEnvironmentFromFallback);
-            renderFolder.add(config, 'fallbackStripeSoftAlpha', 0, 0.5).step(0.01).name('Fallback高光(弱条纹)').onChange(refreshEnvironmentFromFallback);
+            lightFolder.add(config, 'ambientIntensity', 0, 1).name('环境光强度').onChange(updateLights);
+            lightFolder.add(config, 'hemiIntensity', 0, 1).name('半球光强度').onChange(updateLights);
 
-            const materialFolder = gui.addFolder('展示面材质');
-            materialFolder.add(config, 'plateMetalness', 0, 1).step(0.01).name('金属度(高=更像金属)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateRoughness', 0.02, 0.8).step(0.01).name('粗糙度(高=更雾面)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateEnvMapIntensity', 0, 3).step(0.01).name('环境反射强度(高=更亮反光)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateClearcoat', 0, 1).step(0.01).name('清漆层(高=高光更硬)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateClearcoatRoughness', 0, 1).step(0.01).name('清漆粗糙(高=高光更散)').onChange(updatePlateMaterials);
+            const renderFolder = gui.addFolder('渲染设置');
+            renderFolder.add(config, 'exposure', 0.5, 2.5).step(0.01).name('曝光度').onChange(() => {
+                renderer.toneMappingExposure = config.exposure;
+            });
+            renderFolder.addColor(config, 'backgroundColor').name('背景色').onChange(() => {
+                scene.background = new THREE.Color(config.backgroundColor);
+            });
 
-            const colorFolder = gui.addFolder('展示面颜色');
-            colorFolder.addColor(config, 'colorSilver').name('银色(默认展示面)').onChange(updatePlateColors);
-            colorFolder.addColor(config, 'colorGold').name('金色(第2面)').onChange(updatePlateColors);
-            colorFolder.addColor(config, 'colorCopper').name('铜色(第3面)').onChange(updatePlateColors);
+            // 点光源设置
+            const pointLightFolder = gui.addFolder('点光源设置');
+            pointLightFolder.add(lightColors, 'useRainbow').name('七彩光源').onChange(updatePointLights);
+            pointLightFolder.add(lightColors, 'pointLightIntensity', 0.1, 1.0).name('光源强度').onChange(updatePointLights);
+
+            // 七彩颜色控制
+            const rainbowFolder = pointLightFolder.addFolder('七彩颜色');
+            rainbowFolder.add(lightColors, 'rainbowHue1', 0, 1).name('颜色1').onChange(updatePointLights);
+            rainbowFolder.add(lightColors, 'rainbowHue2', 0, 1).name('颜色2').onChange(updatePointLights);
+            rainbowFolder.add(lightColors, 'rainbowHue3', 0, 1).name('颜色3').onChange(updatePointLights);
+            rainbowFolder.add(lightColors, 'rainbowHue4', 0, 1).name('颜色4').onChange(updatePointLights);
+            rainbowFolder.add(lightColors, 'rainbowHue5', 0, 1).name('颜色5').onChange(updatePointLights);
+            rainbowFolder.add(lightColors, 'rainbowHue6', 0, 1).name('颜色6').onChange(updatePointLights);
+
+            // 环境贴图设置
+            const envFolder = gui.addFolder('环境贴图');
+            envFolder.add(envParams, 'bgBrightness', 0.1, 1).name('背景亮度').onChange(refreshEnvironment);
+            envFolder.add(envParams, 'lightBrightness', 0.1, 1).name('光源亮度').onChange(refreshEnvironment);
         }
 
-        function updateRenderParams() {
-            if (renderer) renderer.toneMappingExposure = config.exposure;
-            if (scene) scene.background = new THREE.Color(config.backgroundColor);
-        }
-
-        function refreshEnvironmentFromFallback() {
+        function refreshEnvironment() {
             if (!renderer || !scene) return;
             const pmremGenerator = new THREE.PMREMGenerator(renderer);
             pmremGenerator.compileEquirectangularShader();
@@ -628,23 +840,15 @@
             pmremGenerator.dispose();
         }
 
-        function updatePlateColors() {
-            ON_COLORS[0].set(config.colorSilver);
-            ON_COLORS[1].set(config.colorGold);
-            ON_COLORS[2].set(config.colorCopper);
-            pixels.forEach(group => applyMaterialState(group, group.userData.currentOn ? 1 : 0, true));
-        }
-
-        function updatePlateMaterials() {
-            pixels.forEach(group => {
-                group.userData.plateMaterials.forEach(material => {
-                    material.metalness = config.plateMetalness;
-                    material.roughness = config.plateRoughness;
-                    material.envMapIntensity = config.plateEnvMapIntensity;
-                    material.clearcoat = config.plateClearcoat;
-                    material.clearcoatRoughness = config.plateClearcoatRoughness;
-                    material.needsUpdate = true;
-                });
+        function updatePixelMaterial(group) {
+            group.userData.plateMaterials.forEach((material, i) => {
+                const idx = i + 1;
+                material.color.set(materialParams['color' + idx]);
+                material.roughness = materialParams['roughness' + idx];
+                material.metalness = materialParams['metalness' + idx];
+                material.clearcoat = materialParams['clearcoat' + idx];
+                material.envMapIntensity = materialParams['envMapIntensity' + idx];
+                material.needsUpdate = true;
             });
         }
 
@@ -719,12 +923,8 @@
                 group.scale.set(s, s, s);
             });
 
-            const viewSize = layoutState.compactView + (layoutState.expandedView - layoutState.compactView) * progress;
-            const aspect = window.innerWidth / window.innerHeight;
-            camera.left = -viewSize * aspect / 2;
-            camera.right = viewSize * aspect / 2;
-            camera.top = viewSize / 2;
-            camera.bottom = -viewSize / 2;
+            // 透视相机：只更新 aspect 比例
+            camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
         }
 
@@ -760,19 +960,26 @@
                 innerParams.bevel
             );
 
-            baseMaterials = ON_COLORS.map(c => new THREE.MeshPhysicalMaterial({
-                color: c,
-                roughness: config.plateRoughness,
-                metalness: config.plateMetalness,
-                envMapIntensity: config.plateEnvMapIntensity,
-                clearcoat: config.plateClearcoat,
-                clearcoatRoughness: config.plateClearcoatRoughness
-            }));
+            // 使用 MeshPhysicalMaterial 实现金属质感
+            baseMaterials = ON_COLORS.map((c, i) => {
+                const idx = i + 1;
+                return new THREE.MeshPhysicalMaterial({
+                    color: c,
+                    roughness: materialParams['roughness' + idx],
+                    metalness: materialParams['metalness' + idx],
+                    clearcoat: materialParams['clearcoat' + idx],
+                    clearcoatRoughness: 0.03,
+                    envMapIntensity: materialParams['envMapIntensity' + idx]
+                });
+            });
 
-            baseInnerMaterial = new THREE.MeshStandardMaterial({
+            baseInnerMaterial = new THREE.MeshPhysicalMaterial({
                 color: innerParams.color,
-                roughness: 0.2,
-                metalness: 0.2
+                roughness: 0.1,
+                metalness: 0.8,
+                clearcoat: 0.5,
+                clearcoatRoughness: 0.05,
+                envMapIntensity: 1.5
             });
         }
 
@@ -1099,13 +1306,16 @@
         }
 
         function onWindowResize() {
-            updateLayoutViewSizes();
-            applyLayoutProgress(layoutState.progress);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
+
+            // 更新鼠标控制
+            controls.update();
 
             const now = performance.now();
             if (layoutState.animating) {

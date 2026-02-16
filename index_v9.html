@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 像素显示墙 - 数字与文字</title>
+    <title>3D 像素显示墙 V9 - 金属质感版</title>
     <style>
         body {
             margin: 0;
@@ -62,8 +62,9 @@
 
 <body>
     <div id="ui">
-        <h2>3D 像素显示墙</h2>
+        <h2>3D 像素显示墙 V9 - 金属质感版</h2>
         <p>自动轮换显示：10 到 1 倒计时，然后显示 HELLO / WORLD</p>
+        <p style="font-size: 12px; color: #888;">增强金属质感 | 更强环境反射</p>
     </div>
 
     <div id="control-panel">
@@ -77,10 +78,14 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
     <!-- dat.GUI -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <!-- OrbitControls for mouse rotation/zoom -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        let scene, camera, renderer;
+        let scene, camera, renderer, controls;
         let ambientLight, hemiLight, spotLight, fillLight, rimLight, keyLight;
+        let pointLight1, pointLight2, pointLight3, pointLight4, pointLight5, pointLight6;
+        let pointLight7, pointLight8, pointLight9, pointLight10, pointLight11, pointLight12, pointLight13;
         const pixels = [];
         const rows = 12;
         const cols = 32;
@@ -105,42 +110,92 @@
         };
 
         const config = {
-            initRotationX: Math.PI / 2,
+            initRotationX: Math.PI / 2 + Math.PI * 2 / 3,  // 旋转到更有金属质感的面
             initRotationY: 0.0,
             initRotationZ: 0.0,
             gap: 0.057,
             backgroundColor: '#20252c',
-            exposure: 1.03,
+            exposure: 1.08,
 
             camX: 0, camY: 0, camZ: 20,
             viewSize: 14,
 
-            spotLightX: 5, spotLightY: 10, spotLightZ: 30,
-            spotLightIntensity: 1.22,
-            spotLightAngle: 0.23,
-            spotLightPenumbra: 0.3,
+            spotLightX: 6, spotLightY: 11, spotLightZ: 32,
+            spotLightIntensity: 1.4,
+            spotLightAngle: 0.24,
+            spotLightPenumbra: 0.25,
 
-            fillLightX: -5, fillLightY: 2, fillLightZ: 20,
-            fillLightIntensity: 0.24,
+            fillLightX: -6, fillLightY: 3, fillLightZ: 22,
+            fillLightIntensity: 0.3,
 
-            ambientIntensity: 0.08,
-            hemiIntensity: 0.11,
+            ambientIntensity: 0.1,
+            hemiIntensity: 0.14,
 
-            rimLightX: -14, rimLightY: 8, rimLightZ: -16,
-            rimLightIntensity: 1.2,
+            rimLightX: -15, rimLightY: 9, rimLightZ: -17,
+            rimLightIntensity: 1.4,
 
-            keyLightX: 10, keyLightY: 7, keyLightZ: 16,
-            keyLightIntensity: 0.35,
+            keyLightX: 11, keyLightY: 7, keyLightZ: 17,
+            keyLightIntensity: 0.4,
 
-            colorSilver: '#9ea5af',
-            colorGold: '#d4af37',
-            colorCopper: '#b87333',
+            // V9 新增点光源 - 增强高光
+            pointLight1X: 5, pointLight1Y: 8, pointLight1Z: 16,
+            pointLight1Intensity: 0.8,
+            pointLight1Color: '#ffffff',
+            pointLight2X: -6, pointLight2Y: -2, pointLight2Z: 18,
+            pointLight2Intensity: 0.5,
+            pointLight2Color: '#c4d4ff',
+            pointLight3X: 0, pointLight3Y: -6, pointLight3Z: 14,
+            pointLight3Intensity: 0.4,
+            pointLight3Color: '#ffe4b5',
 
-            plateRoughness: 0.12,
+            // V9 更多彩色点光源 - 对应远处的彩色几何体
+            pointLight4X: -12, pointLight4Y: 8, pointLight4Z: -50,
+            pointLight4Intensity: 1.5,
+            pointLight4Color: '#ff6b6b',
+            pointLight5X: 15, pointLight5Y: -5, pointLight5Z: -55,
+            pointLight5Intensity: 1.3,
+            pointLight5Color: '#4ecdc4',
+            pointLight6X: 0, pointLight6Y: 10, pointLight6Z: -60,
+            pointLight6Intensity: 1.2,
+            pointLight6Color: '#ffe66d',
+            pointLight7X: -8, pointLight7Y: -8, pointLight7Z: -53,
+            pointLight7Intensity: 1.3,
+            pointLight7Color: '#95e1d3',
+            pointLight8X: 20, pointLight8Y: 6, pointLight8Z: -65,
+            pointLight8Intensity: 1.4,
+            pointLight8Color: '#f38181',
+            pointLight9X: -15, pointLight9Y: 0, pointLight9Z: -57,
+            pointLight9Intensity: 1.2,
+            pointLight9Color: '#aa96da',
+            pointLight10X: 10, pointLight10Y: 12, pointLight10Z: -63,
+            pointLight10Intensity: 1.3,
+            pointLight10Color: '#fcbad3',
+            pointLight11X: -25, pointLight11Y: 5, pointLight11Z: -60,
+            pointLight11Intensity: 1.2,
+            pointLight11Color: '#ff9a3c',
+            pointLight12X: 18, pointLight12Y: -12, pointLight12Z: -53,
+            pointLight12Intensity: 1.1,
+            pointLight12Color: '#00d2d3',
+            pointLight13X: 25, pointLight13Y: 3, pointLight13Z: -70,
+            pointLight13Intensity: 1.0,
+            pointLight13Color: '#5f27cd',
+
+            // V9 反射几何体XYZ位置
+            reflectionX: 0,
+            reflectionY: 0,
+            reflectionZ: -60,
+
+            // V9 金属质感增强 - 更亮的金属颜色
+            colorSilver: '#b8c0cc',
+            colorGold: '#e6c550',
+            colorCopper: '#c9884a',
+
+            // V9 材质参数增强
+            plateRoughness: 0.09,
             plateMetalness: 0.98,
-            plateEnvMapIntensity: 1.9,
-            plateClearcoat: 0.55,
-            plateClearcoatRoughness: 0.1,
+            plateEnvMapIntensity: 2.8,
+            plateClearcoat: 0.65,
+            plateClearcoatRoughness: 0.06,
 
             fallbackStripeStrongAlpha: 0.56,
             fallbackStripeSoftAlpha: 0.22
@@ -151,9 +206,9 @@
         let baseInnerMaterial;
 
         const ON_COLORS = [
-            new THREE.Color(0x9ea5af), // metallic silver (default, darker)
-            new THREE.Color(0xd4af37), // metallic gold
-            new THREE.Color(0xb87333)  // metallic copper
+            new THREE.Color(0xb8c0cc), // metallic silver (V9 brighter)
+            new THREE.Color(0xe6c550), // metallic gold (V9 brighter)
+            new THREE.Color(0xc9884a)  // metallic copper (V9 brighter)
         ];
 
         const FLIP_ANGLE = (Math.PI * 2) / 3;
@@ -182,177 +237,25 @@
         const FONT_SPACING = 1;
 
         const FONT = {
-            '0': [
-                '01110',
-                '10001',
-                '10011',
-                '10101',
-                '11001',
-                '10001',
-                '01110'
-            ],
-            '1': [
-                '00100',
-                '01100',
-                '00100',
-                '00100',
-                '00100',
-                '00100',
-                '01110'
-            ],
-            '2': [
-                '01110',
-                '10001',
-                '00001',
-                '00010',
-                '00100',
-                '01000',
-                '11111'
-            ],
-            '3': [
-                '01110',
-                '10001',
-                '00001',
-                '00110',
-                '00001',
-                '10001',
-                '01110'
-            ],
-            '4': [
-                '00010',
-                '00110',
-                '01010',
-                '10010',
-                '11111',
-                '00010',
-                '00010'
-            ],
-            '5': [
-                '11111',
-                '10000',
-                '11110',
-                '00001',
-                '00001',
-                '10001',
-                '01110'
-            ],
-            '6': [
-                '00110',
-                '01000',
-                '10000',
-                '11110',
-                '10001',
-                '10001',
-                '01110'
-            ],
-            '7': [
-                '11111',
-                '00001',
-                '00010',
-                '00100',
-                '01000',
-                '01000',
-                '01000'
-            ],
-            '8': [
-                '01110',
-                '10001',
-                '10001',
-                '01110',
-                '10001',
-                '10001',
-                '01110'
-            ],
-            '9': [
-                '01110',
-                '10001',
-                '10001',
-                '01111',
-                '00001',
-                '00010',
-                '01100'
-            ],
-            'A': [
-                '01110',
-                '10001',
-                '10001',
-                '11111',
-                '10001',
-                '10001',
-                '10001'
-            ],
-            'D': [
-                '11110',
-                '10001',
-                '10001',
-                '10001',
-                '10001',
-                '10001',
-                '11110'
-            ],
-            'E': [
-                '11111',
-                '10000',
-                '10000',
-                '11110',
-                '10000',
-                '10000',
-                '11111'
-            ],
-            'H': [
-                '10001',
-                '10001',
-                '10001',
-                '11111',
-                '10001',
-                '10001',
-                '10001'
-            ],
-            'L': [
-                '10000',
-                '10000',
-                '10000',
-                '10000',
-                '10000',
-                '10000',
-                '11111'
-            ],
-            'O': [
-                '01110',
-                '10001',
-                '10001',
-                '10001',
-                '10001',
-                '10001',
-                '01110'
-            ],
-            'R': [
-                '11110',
-                '10001',
-                '10001',
-                '11110',
-                '10100',
-                '10010',
-                '10001'
-            ],
-            'W': [
-                '10001',
-                '10001',
-                '10001',
-                '10101',
-                '10101',
-                '10101',
-                '01010'
-            ],
-            ' ': [
-                '00000',
-                '00000',
-                '00000',
-                '00000',
-                '00000',
-                '00000',
-                '00000'
-            ]
+            '0': ['01110','10001','10011','10101','11001','10001','01110'],
+            '1': ['00100','01100','00100','00100','00100','00100','01110'],
+            '2': ['01110','10001','00001','00010','00100','01000','11111'],
+            '3': ['01110','10001','00001','00110','00001','10001','01110'],
+            '4': ['00010','00110','01010','10010','11111','00010','00010'],
+            '5': ['11111','10000','11110','00001','00001','10001','01110'],
+            '6': ['00110','01000','10000','11110','10001','10001','01110'],
+            '7': ['11111','00001','00010','00100','01000','01000','01000'],
+            '8': ['01110','10001','10001','01110','10001','10001','01110'],
+            '9': ['01110','10001','10001','01111','00001','00010','01100'],
+            'A': ['01110','10001','10001','11111','10001','10001','10001'],
+            'D': ['11110','10001','10001','10001','10001','10001','11110'],
+            'E': ['11111','10000','10000','11110','10000','10000','11111'],
+            'H': ['10001','10001','10001','11111','10001','10001','10001'],
+            'L': ['10000','10000','10000','10000','10000','10000','11111'],
+            'O': ['01110','10001','10001','10001','10001','10001','01110'],
+            'R': ['11110','10001','10001','11110','10100','10010','10001'],
+            'W': ['10001','10001','10001','10101','10101','10101','01010'],
+            ' ': ['00000','00000','00000','00000','00000','00000','00000']
         };
 
         const playlist = [
@@ -397,6 +300,15 @@
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
 
+            // V9 添加鼠标控制 - 旋转缩放
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.enablePan = false;
+            controls.minDistance = 10;
+            controls.maxDistance = 80;
+            controls.target.set(0, 0, 0);
+
             ambientLight = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
             scene.add(ambientLight);
             hemiLight = new THREE.HemisphereLight(0xe8f1ff, 0x2e343d, config.hemiIntensity);
@@ -426,16 +338,71 @@
             keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
             scene.add(keyLight);
 
+            // V9 点光源 - 增强金属高光反射
+            pointLight1 = new THREE.PointLight(config.pointLight1Color, config.pointLight1Intensity, 40);
+            pointLight1.position.set(config.pointLight1X, config.pointLight1Y, config.pointLight1Z);
+            scene.add(pointLight1);
+
+            pointLight2 = new THREE.PointLight(config.pointLight2Color, config.pointLight2Intensity, 40);
+            pointLight2.position.set(config.pointLight2X, config.pointLight2Y, config.pointLight2Z);
+            scene.add(pointLight2);
+
+            pointLight3 = new THREE.PointLight(config.pointLight3Color, config.pointLight3Intensity, 40);
+            pointLight3.position.set(config.pointLight3X, config.pointLight3Y, config.pointLight3Z);
+            scene.add(pointLight3);
+
+            // V9 更多的彩色点光源 - 对应远处的彩色几何体
+            pointLight4 = new THREE.PointLight(config.pointLight4Color, config.pointLight4Intensity, 80);
+            pointLight4.position.set(config.pointLight4X, config.pointLight4Y, config.pointLight4Z);
+            scene.add(pointLight4);
+
+            pointLight5 = new THREE.PointLight(config.pointLight5Color, config.pointLight5Intensity, 80);
+            pointLight5.position.set(config.pointLight5X, config.pointLight5Y, config.pointLight5Z);
+            scene.add(pointLight5);
+
+            pointLight6 = new THREE.PointLight(config.pointLight6Color, config.pointLight6Intensity, 80);
+            pointLight6.position.set(config.pointLight6X, config.pointLight6Y, config.pointLight6Z);
+            scene.add(pointLight6);
+
+            pointLight7 = new THREE.PointLight(config.pointLight7Color, config.pointLight7Intensity, 80);
+            pointLight7.position.set(config.pointLight7X, config.pointLight7Y, config.pointLight7Z);
+            scene.add(pointLight7);
+
+            pointLight8 = new THREE.PointLight(config.pointLight8Color, config.pointLight8Intensity, 80);
+            pointLight8.position.set(config.pointLight8X, config.pointLight8Y, config.pointLight8Z);
+            scene.add(pointLight8);
+
+            pointLight9 = new THREE.PointLight(config.pointLight9Color, config.pointLight9Intensity, 80);
+            pointLight9.position.set(config.pointLight9X, config.pointLight9Y, config.pointLight9Z);
+            scene.add(pointLight9);
+
+            pointLight10 = new THREE.PointLight(config.pointLight10Color, config.pointLight10Intensity, 80);
+            pointLight10.position.set(config.pointLight10X, config.pointLight10Y, config.pointLight10Z);
+            scene.add(pointLight10);
+
+            pointLight11 = new THREE.PointLight(config.pointLight11Color, config.pointLight11Intensity, 80);
+            pointLight11.position.set(config.pointLight11X, config.pointLight11Y, config.pointLight11Z);
+            scene.add(pointLight11);
+
+            pointLight12 = new THREE.PointLight(config.pointLight12Color, config.pointLight12Intensity, 80);
+            pointLight12.position.set(config.pointLight12X, config.pointLight12Y, config.pointLight12Z);
+            scene.add(pointLight12);
+
+            pointLight13 = new THREE.PointLight(config.pointLight13Color, config.pointLight13Intensity, 80);
+            pointLight13.position.set(config.pointLight13X, config.pointLight13Y, config.pointLight13Z);
+            scene.add(pointLight13);
+
             loadEnvironment(() => {
                 initResources();
+
+                // V9 在场景中添加反射源物体 - 墙对面的不规则几何体
+                createReflectionObjects();
 
                 for (let i = 0; i < rows; i++) {
                     for (let j = 0; j < cols; j++) {
                         const prism = createPrismInstance();
-
                         prism.userData.gridRow = i;
                         prism.userData.gridCol = j;
-
                         prism.userData.baseRotationX = config.initRotationX;
                         prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
                         prism.userData.targetRotationX = config.initRotationX;
@@ -443,7 +410,6 @@
                         prism.userData.currentOn = false;
                         prism.userData.targetOn = false;
                         prism.userData.isAnimating = false;
-
                         scene.add(prism);
                         pixels.push(prism);
                     }
@@ -491,24 +457,70 @@
 
         function createFallbackEnvironment(pmremGenerator) {
             const canvas = document.createElement('canvas');
-            canvas.width = 1024;
-            canvas.height = 512;
+            canvas.width = 2048;  // 提高分辨率
+            canvas.height = 1024;
             const ctx = canvas.getContext('2d');
 
+            // 更丰富的背景渐变 - 模拟复杂室内环境
             const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            bg.addColorStop(0.0, '#6f7886');
-            bg.addColorStop(0.35, '#aeb8c8');
-            bg.addColorStop(1.0, '#2a303a');
+            bg.addColorStop(0.0, '#3a4550');
+            bg.addColorStop(0.15, '#5a6a7a');
+            bg.addColorStop(0.3, '#8898a8');
+            bg.addColorStop(0.45, '#b0c0d0');
+            bg.addColorStop(0.55, '#c8d8e8');
+            bg.addColorStop(0.65, '#a8b8c8');
+            bg.addColorStop(0.8, '#6a7a8a');
+            bg.addColorStop(1.0, '#2a3540');
             ctx.fillStyle = bg;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+            // 强光带 - 模拟窗户/光源
             ctx.globalAlpha = config.fallbackStripeStrongAlpha;
-            ctx.fillStyle = '#f2f6ff';
-            ctx.fillRect(180, 0, 60, canvas.height);
-            ctx.fillRect(430, 0, 90, canvas.height);
-            ctx.fillRect(760, 0, 50, canvas.height);
+            ctx.fillStyle = '#ffffff';
+
+            // 多个强光带
+            ctx.fillRect(150, 0, 80, canvas.height);
+            ctx.fillRect(400, 0, 120, canvas.height);
+            ctx.fillRect(700, 0, 70, canvas.height);
+            ctx.fillRect(1050, 0, 50, canvas.height);
+            ctx.fillRect(1350, 0, 90, canvas.height);
+            ctx.fillRect(1650, 0, 60, canvas.height);
+            ctx.fillRect(1900, 0, 40, canvas.height);
+
+            // 弱光带 - 填充
             ctx.globalAlpha = config.fallbackStripeSoftAlpha;
-            ctx.fillRect(0, 150, canvas.width, 60);
+            ctx.fillRect(0, 80, canvas.width, 100);
+            ctx.fillRect(0, 280, canvas.width, 60);
+            ctx.fillRect(0, 450, canvas.width, 80);
+            ctx.fillRect(0, 650, canvas.width, 70);
+            ctx.fillRect(0, 850, canvas.width, 90);
+
+            // 添加光源点 - 模拟室内灯光反射源
+            ctx.globalAlpha = 0.4;
+            const gradient1 = ctx.createRadialGradient(200, 200, 0, 200, 200, 300);
+            gradient1.addColorStop(0, '#ffffff');
+            gradient1.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient1;
+            ctx.fillRect(0, 0, 500, 500);
+
+            const gradient2 = ctx.createRadialGradient(500, 700, 0, 500, 700, 350);
+            gradient2.addColorStop(0, '#e8f0ff');
+            gradient2.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient2;
+            ctx.fillRect(200, 400, 600, 600);
+
+            const gradient3 = ctx.createRadialGradient(1500, 300, 0, 1500, 300, 400);
+            gradient3.addColorStop(0, '#fff8e8');
+            gradient3.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient3;
+            ctx.fillRect(1100, 0, 800, 700);
+
+            const gradient4 = ctx.createRadialGradient(1700, 800, 0, 1700, 800, 300);
+            gradient4.addColorStop(0, '#f0f8ff');
+            gradient4.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient4;
+            ctx.fillRect(1400, 500, 600, 600);
+
             ctx.globalAlpha = 1.0;
 
             const texture = new THREE.CanvasTexture(canvas);
@@ -517,6 +529,126 @@
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             texture.dispose();
             return envMap;
+        }
+
+        // V9 创建反射源物体 - 在墙的对面（看不见的地方）添加发光体
+        function createReflectionObjects() {
+            const reflectionObjects = [];
+
+            // 相对位置配置 - 相对于基准位置的偏移量
+            const reflectionConfigs = [
+                // ===== 墙后面/侧面的反射物体 (负Z方向) - 让背面有金属感 =====
+
+                // 各种颜色的球体
+                { type: 'sphere', offset: [-12, 8, 5], scale: 3.0, color: '#ff6b6b', intensity: 0.85 },
+                { type: 'sphere', offset: [15, -5, 0], scale: 2.5, color: '#4ecdc4', intensity: 0.8 },
+                { type: 'sphere', offset: [0, 10, -5], scale: 2.0, color: '#ffe66d', intensity: 0.75 },
+
+                // 彩色立方体
+                { type: 'box', offset: [-8, -8, 2], scale: 2.8, color: '#95e1d3', intensity: 0.8 },
+                { type: 'box', offset: [20, 6, -10], scale: 3.5, color: '#f38181', intensity: 0.7 },
+                { type: 'box', offset: [-20, 0, -2], scale: 2.2, color: '#aa96da', intensity: 0.75 },
+
+                // 彩色二十面体
+                { type: 'icosa', offset: [10, 12, -8], scale: 2.8, color: '#fcbad3', intensity: 0.8 },
+                { type: 'icosa', offset: [-15, -10, 5], scale: 2.4, color: '#a8d8ea', intensity: 0.75 },
+                { type: 'icosa', offset: [5, -12, -12], scale: 2.0, color: '#ffd3b6', intensity: 0.7 },
+
+                // 彩色圆环
+                { type: 'torus', offset: [-25, 5, -5], scale: 2.5, color: '#ff9a3c', intensity: 0.75 },
+                { type: 'torus', offset: [18, -12, 2], scale: 2.0, color: '#00d2d3', intensity: 0.7 },
+
+                // 彩色八面体
+                { type: 'octa', offset: [25, 3, -15], scale: 2.6, color: '#5f27cd', intensity: 0.65 },
+                { type: 'octa', offset: [-18, -15, -8], scale: 2.3, color: '#ff6348', intensity: 0.7 },
+                { type: 'octa', offset: [8, 15, -18], scale: 1.8, color: '#2ed573', intensity: 0.6 },
+
+                // 更多彩色球体
+                { type: 'sphere', offset: [-5, -18, 8], scale: 1.8, color: '#1e90ff', intensity: 0.65 },
+                { type: 'sphere', offset: [22, 10, -20], scale: 2.2, color: '#ff4757', intensity: 0.6 },
+                { type: 'sphere', offset: [-22, 8, -12], scale: 1.6, color: '#7bed9f', intensity: 0.55 },
+
+                // ===== 墙前面/侧面的反射物体 (正Z方向) - 让正面有金属感 =====
+
+                // 正面球体
+                { type: 'sphere', offset: [-15, 10, 25], scale: 2.5, color: '#ff9ff3', intensity: 0.8 },
+                { type: 'sphere', offset: [18, -8, 22], scale: 2.0, color: '#54a0ff', intensity: 0.75 },
+                { type: 'sphere', offset: [0, 15, 28], scale: 1.8, color: '#feca57', intensity: 0.7 },
+
+                // 正面立方体
+                { type: 'box', offset: [-20, -5, 20], scale: 2.2, color: '#ff6b6b', intensity: 0.75 },
+                { type: 'box', offset: [12, 8, 26], scale: 1.8, color: '#48dbfb', intensity: 0.7 },
+
+                // 正面二十面体
+                { type: 'icosa', offset: [8, -12, 24], scale: 1.6, color: '#1dd1a1', intensity: 0.7 },
+                { type: 'icosa', offset: [-10, 5, 30], scale: 2.0, color: '#ff9ff3', intensity: 0.65 },
+
+                // 正面圆环
+                { type: 'torus', offset: [20, 0, 22], scale: 1.5, color: '#ff9f43', intensity: 0.7 },
+
+                // 正面八面体
+                { type: 'octa', offset: [-18, 12, 26], scale: 1.8, color: '#5f27cd', intensity: 0.65 },
+                { type: 'octa', offset: [15, -15, 28], scale: 1.4, color: '#ee5253', intensity: 0.6 },
+            ];
+
+            reflectionConfigs.forEach(cfg => {
+                let geometry;
+                switch (cfg.type) {
+                    case 'sphere':
+                        geometry = new THREE.SphereGeometry(cfg.scale, 24, 24);
+                        break;
+                    case 'box':
+                        geometry = new THREE.BoxGeometry(cfg.scale, cfg.scale, cfg.scale);
+                        break;
+                    case 'icosa':
+                        geometry = new THREE.IcosahedronGeometry(cfg.scale, 0);
+                        break;
+                    case 'torus':
+                        geometry = new THREE.TorusGeometry(cfg.scale, cfg.scale * 0.35, 12, 32);
+                        break;
+                    case 'octa':
+                        geometry = new THREE.OctahedronGeometry(cfg.scale, 0);
+                        break;
+                }
+
+                const material = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color(cfg.color),
+                    transparent: true,
+                    opacity: cfg.intensity
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                // 使用相对偏移计算实际位置
+                mesh.position.set(
+                    config.reflectionX + cfg.offset[0],
+                    config.reflectionY + cfg.offset[1],
+                    config.reflectionZ + cfg.offset[2]
+                );
+                // 保存原始偏移量
+                mesh.userData.offsetX = cfg.offset[0];
+                mesh.userData.offsetY = cfg.offset[1];
+                mesh.userData.offsetZ = cfg.offset[2];
+
+                // 添加缓慢旋转动画
+                mesh.userData.rotationSpeedX = (Math.random() - 0.5) * 0.005;
+                mesh.userData.rotationSpeedY = (Math.random() - 0.5) * 0.008;
+                mesh.userData.rotationSpeedZ = (Math.random() - 0.5) * 0.003;
+
+                scene.add(mesh);
+                reflectionObjects.push(mesh);
+            });
+
+            scene.userData.reflectionObjects = reflectionObjects;
+        }
+
+        // V9 更新反射物体位置
+        function updateReflectionObjectsPos() {
+            if (!scene.userData.reflectionObjects) return;
+            scene.userData.reflectionObjects.forEach(mesh => {
+                mesh.position.x = config.reflectionX + mesh.userData.offsetX;
+                mesh.position.y = config.reflectionY + mesh.userData.offsetY;
+                mesh.position.z = config.reflectionZ + mesh.userData.offsetZ;
+            });
         }
 
         function initGUI() {
@@ -545,6 +677,7 @@
             const updateCamera = () => {
                 camera.position.set(config.camX, config.camY, config.camZ);
                 camera.lookAt(0, 0, 0);
+                if (controls) controls.target.set(0, 0, 0);
                 updateLayoutViewSizes();
                 applyLayoutProgress(layoutState.progress);
             };
@@ -554,24 +687,33 @@
             camFolder.add(config, 'viewSize', 5, 30).name('缩放 (ViewSize)').onChange(updateCamera);
             camFolder.open();
 
-            const lightFolder = gui.addFolder('光源设置');
+            const lightFolder = gui.addFolder('光源设置 (V9强化)');
             const updateLights = () => {
                 ambientLight.intensity = config.ambientIntensity;
                 hemiLight.intensity = config.hemiIntensity;
-
                 spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
                 spotLight.intensity = config.spotLightIntensity;
                 spotLight.angle = config.spotLightAngle;
                 spotLight.penumbra = config.spotLightPenumbra;
-
                 fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
                 fillLight.intensity = config.fillLightIntensity;
-
                 rimLight.position.set(config.rimLightX, config.rimLightY, config.rimLightZ);
                 rimLight.intensity = config.rimLightIntensity;
-
                 keyLight.position.set(config.keyLightX, config.keyLightY, config.keyLightZ);
                 keyLight.intensity = config.keyLightIntensity;
+
+                // V9 点光源更新
+                pointLight1.position.set(config.pointLight1X, config.pointLight1Y, config.pointLight1Z);
+                pointLight1.intensity = config.pointLight1Intensity;
+                pointLight1.color.set(config.pointLight1Color);
+
+                pointLight2.position.set(config.pointLight2X, config.pointLight2Y, config.pointLight2Z);
+                pointLight2.intensity = config.pointLight2Intensity;
+                pointLight2.color.set(config.pointLight2Color);
+
+                pointLight3.position.set(config.pointLight3X, config.pointLight3Y, config.pointLight3Z);
+                pointLight3.intensity = config.pointLight3Intensity;
+                pointLight3.color.set(config.pointLight3Color);
             };
 
             lightFolder.add(config, 'spotLightX', -50, 50).name('主光 X').onChange(updateLights);
@@ -580,7 +722,6 @@
             lightFolder.add(config, 'spotLightIntensity', 0, 4).name('主光强度').onChange(updateLights);
             lightFolder.add(config, 'spotLightAngle', 0, Math.PI / 2).name('光照角度').onChange(updateLights);
             lightFolder.add(config, 'spotLightPenumbra', 0, 1).name('边缘柔化').onChange(updateLights);
-
             lightFolder.add(config, 'fillLightX', -20, 20).name('补光 X').onChange(updateLights);
             lightFolder.add(config, 'fillLightY', -20, 20).name('补光 Y').onChange(updateLights);
             lightFolder.add(config, 'fillLightZ', -20, 20).name('补光 Z').onChange(updateLights);
@@ -596,36 +737,53 @@
             lightFolder.add(config, 'keyLightZ', -30, 30).name('正补光 Z').onChange(updateLights);
             lightFolder.add(config, 'keyLightIntensity', 0, 4).name('正补光强度').onChange(updateLights);
 
+            // V9 点光源控制
+            const pointLightFolder = gui.addFolder('点光源 (V9增强金属感)');
+            pointLightFolder.add(config, 'pointLight1X', -20, 20).name('点光1 X').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight1Y', -20, 20).name('点光1 Y').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight1Z', 5, 40).name('点光1 Z').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight1Intensity', 0, 2).name('点光1强度').onChange(updateLights);
+            pointLightFolder.addColor(config, 'pointLight1Color').name('点光1颜色').onChange(updateLights);
+
+            pointLightFolder.add(config, 'pointLight2X', -20, 20).name('点光2 X').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight2Y', -20, 20).name('点光2 Y').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight2Z', 5, 40).name('点光2 Z').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight2Intensity', 0, 2).name('点光2强度').onChange(updateLights);
+            pointLightFolder.addColor(config, 'pointLight2Color').name('点光2颜色').onChange(updateLights);
+
+            pointLightFolder.add(config, 'pointLight3X', -20, 20).name('点光3 X').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight3Y', -20, 20).name('点光3 Y').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight3Z', 5, 40).name('点光3 Z').onChange(updateLights);
+            pointLightFolder.add(config, 'pointLight3Intensity', 0, 2).name('点光3强度').onChange(updateLights);
+            pointLightFolder.addColor(config, 'pointLight3Color').name('点光3颜色').onChange(updateLights);
+
             const renderFolder = gui.addFolder('渲染与背景');
-            renderFolder.add(config, 'exposure', 0.5, 1.8).step(0.01).name('曝光(整体亮度基线)').onChange(updateRenderParams);
-            renderFolder.addColor(config, 'backgroundColor').name('背景色(对比基底)').onChange(updateRenderParams);
-            renderFolder.add(config, 'fallbackStripeStrongAlpha', 0, 0.8).step(0.01).name('Fallback高光(强条纹)').onChange(refreshEnvironmentFromFallback);
-            renderFolder.add(config, 'fallbackStripeSoftAlpha', 0, 0.5).step(0.01).name('Fallback高光(弱条纹)').onChange(refreshEnvironmentFromFallback);
+            renderFolder.add(config, 'exposure', 0.5, 1.8).step(0.01).name('曝光').onChange(updateRenderParams);
+            renderFolder.addColor(config, 'backgroundColor').name('背景色').onChange(updateRenderParams);
 
-            const materialFolder = gui.addFolder('展示面材质');
-            materialFolder.add(config, 'plateMetalness', 0, 1).step(0.01).name('金属度(高=更像金属)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateRoughness', 0.02, 0.8).step(0.01).name('粗糙度(高=更雾面)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateEnvMapIntensity', 0, 3).step(0.01).name('环境反射强度(高=更亮反光)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateClearcoat', 0, 1).step(0.01).name('清漆层(高=高光更硬)').onChange(updatePlateMaterials);
-            materialFolder.add(config, 'plateClearcoatRoughness', 0, 1).step(0.01).name('清漆粗糙(高=高光更散)').onChange(updatePlateMaterials);
+            // V9 反射物体控制
+            const reflectionFolder = gui.addFolder('反射物体 (V9)');
+            reflectionFolder.add(config, 'reflectionX', -50, 50).step(1).name('X轴位置').onChange(updateReflectionObjectsPos);
+            reflectionFolder.add(config, 'reflectionY', -30, 30).step(1).name('Y轴位置').onChange(updateReflectionObjectsPos);
+            reflectionFolder.add(config, 'reflectionZ', -100, 20).step(1).name('Z轴位置').onChange(updateReflectionObjectsPos);
+            reflectionFolder.open();
 
-            const colorFolder = gui.addFolder('展示面颜色');
-            colorFolder.addColor(config, 'colorSilver').name('银色(默认展示面)').onChange(updatePlateColors);
-            colorFolder.addColor(config, 'colorGold').name('金色(第2面)').onChange(updatePlateColors);
-            colorFolder.addColor(config, 'colorCopper').name('铜色(第3面)').onChange(updatePlateColors);
+            const materialFolder = gui.addFolder('展示面材质 (V9金属质感)');
+            materialFolder.add(config, 'plateMetalness', 0, 1).step(0.01).name('金属度').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateRoughness', 0.02, 0.8).step(0.01).name('粗糙度').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateEnvMapIntensity', 0, 4).step(0.01).name('环境反射').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateClearcoat', 0, 1).step(0.01).name('清漆层').onChange(updatePlateMaterials);
+            materialFolder.add(config, 'plateClearcoatRoughness', 0, 1).step(0.01).name('清漆粗糙').onChange(updatePlateMaterials);
+
+            const colorFolder = gui.addFolder('展示面颜色 (V9更亮)');
+            colorFolder.addColor(config, 'colorSilver').name('银色').onChange(updatePlateColors);
+            colorFolder.addColor(config, 'colorGold').name('金色').onChange(updatePlateColors);
+            colorFolder.addColor(config, 'colorCopper').name('铜色').onChange(updatePlateColors);
         }
 
         function updateRenderParams() {
             if (renderer) renderer.toneMappingExposure = config.exposure;
             if (scene) scene.background = new THREE.Color(config.backgroundColor);
-        }
-
-        function refreshEnvironmentFromFallback() {
-            if (!renderer || !scene) return;
-            const pmremGenerator = new THREE.PMREMGenerator(renderer);
-            pmremGenerator.compileEquirectangularShader();
-            scene.environment = createFallbackEnvironment(pmremGenerator);
-            pmremGenerator.dispose();
         }
 
         function updatePlateColors() {
@@ -652,7 +810,6 @@
             const select = document.getElementById('startSelect');
             const button = document.getElementById('startBtn');
             if (!select || !button) return;
-
             select.innerHTML = '';
             playlist.forEach((item, index) => {
                 const option = document.createElement('option');
@@ -660,7 +817,6 @@
                 option.textContent = `${index + 1}. ${item.text}`;
                 select.appendChild(option);
             });
-
             button.addEventListener('click', () => {
                 const idx = Number.parseInt(select.value, 10);
                 resetAndStart(Number.isNaN(idx) ? 0 : idx);
@@ -677,9 +833,7 @@
             layoutState.expandedView = config.viewSize * (cols / compactCols);
         }
 
-        function clamp(value, min, max) {
-            return Math.max(min, Math.min(max, value));
-        }
+        function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
         function computeLayoutData() {
             const gap = config.gap;
@@ -693,11 +847,9 @@
                 const row = group.userData.gridRow;
                 const col = group.userData.gridCol;
                 const posY = (row * (UNIT_SIZE + gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
-
                 const expandedX = (col * (UNIT_SIZE + gap)) - (expandedTotalWidth / 2) + (UNIT_SIZE / 2);
                 const mappedCol = clamp(col, compactStart, compactEnd) - compactStart;
                 const compactX = (mappedCol * (UNIT_SIZE + gap)) - (compactTotalWidth / 2) + (UNIT_SIZE / 2);
-
                 group.userData.compactPos = { x: compactX, y: posY };
                 group.userData.expandedPos = { x: expandedX, y: posY };
                 group.userData.compactScale = (col < compactStart || col > compactEnd) ? 0.0 : 1.0;
@@ -718,7 +870,6 @@
                 group.position.y = y;
                 group.scale.set(s, s, s);
             });
-
             const viewSize = layoutState.compactView + (layoutState.expandedView - layoutState.compactView) * progress;
             const aspect = window.innerWidth / window.innerHeight;
             camera.left = -viewSize * aspect / 2;
@@ -745,20 +896,8 @@
 
         function initResources() {
             const PLATE_WIDTH = UNIT_SIZE * PLATE_SCALE;
-            plateGeometry = createRoundedPlateGeometry(
-                UNIT_SIZE,
-                PLATE_WIDTH,
-                PLATE_THICKNESS,
-                BEVEL_THICKNESS,
-                CORNER_RADIUS
-            );
-
-            innerGeometry = createInnerPrismGeometry(
-                innerParams.size,
-                innerParams.length,
-                innerParams.radius,
-                innerParams.bevel
-            );
+            plateGeometry = createRoundedPlateGeometry(UNIT_SIZE, PLATE_WIDTH, PLATE_THICKNESS, BEVEL_THICKNESS, CORNER_RADIUS);
+            innerGeometry = createInnerPrismGeometry(innerParams.size, innerParams.length, innerParams.radius, innerParams.bevel);
 
             baseMaterials = ON_COLORS.map(c => new THREE.MeshPhysicalMaterial({
                 color: c,
@@ -778,7 +917,6 @@
 
         function createPrismInstance() {
             const group = new THREE.Group();
-
             const apothem = UNIT_SIZE / (2 * Math.sqrt(3));
             const distance = apothem - PLATE_THICKNESS / 2 + GAP_OFFSET;
             const angles = [Math.PI / 2, -Math.PI / 6, 7 * Math.PI / 6];
@@ -790,11 +928,9 @@
                 const plate = new THREE.Mesh(plateGeometry, plateMaterials[i]);
                 plate.castShadow = true;
                 plate.receiveShadow = true;
-
                 const angle = angles[i];
                 plate.position.set(0, distance * Math.sin(angle), distance * Math.cos(angle));
                 plate.rotation.x = -angle;
-
                 group.add(plate);
             }
 
@@ -825,7 +961,6 @@
         function applyMaterialState(group, level, immediate = false) {
             const t = Math.min(1, Math.max(0, level));
             const emissive = OFF_EMISSIVE + (ON_EMISSIVE - OFF_EMISSIVE) * t;
-
             for (let i = 0; i < group.userData.plateMaterials.length; i++) {
                 const material = group.userData.plateMaterials[i];
                 material.color.copy(ON_COLORS[i]);
@@ -833,7 +968,6 @@
                 material.emissiveIntensity = emissive;
                 if (immediate) material.needsUpdate = true;
             }
-
             group.userData.innerMaterial.color.set(innerParams.color);
             group.userData.innerMaterial.emissive.set(0x000000);
             group.userData.innerMaterial.emissiveIntensity = emissive * 0.6;
@@ -841,13 +975,8 @@
 
         function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
             const shape = new THREE.Shape();
-            const w = width;
-            const h = height;
-            const r = radius;
-
-            const x = -w / 2;
-            const y = -h / 2;
-
+            const w = width, h = height, r = radius;
+            const x = -w / 2, y = -h / 2;
             shape.moveTo(x + r, y);
             shape.lineTo(x + w - r, y);
             shape.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -857,33 +986,20 @@
             shape.quadraticCurveTo(x, y + h, x, y + h - r);
             shape.lineTo(x, y + r);
             shape.quadraticCurveTo(x, y, x + r, y);
-
-            const extrudeSettings = {
-                steps: 1,
-                depth: thickness,
-                bevelEnabled: true,
-                bevelThickness: bevel,
-                bevelSize: bevel,
-                bevelSegments: 3
-            };
-
+            const extrudeSettings = { steps: 1, depth: thickness, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3 };
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             geometry.computeBoundingBox();
             const centerOffset = -0.5 * (geometry.boundingBox.max.z - geometry.boundingBox.min.z);
             geometry.translate(0, 0, centerOffset);
-
             return geometry;
         }
 
         function createInnerPrismGeometry(size, length, radius, bevel) {
             const shape = new THREE.Shape();
-            const R = size;
-            const r = radius;
-
+            const R = size, r = radius;
             const angleStart = -Math.PI / 2;
             const angleStep = Math.PI * 2 / 3;
             const dist = R - 2 * r;
-
             for (let i = 0; i < 3; i++) {
                 const angle = angleStart + i * angleStep;
                 const cx = dist * Math.cos(angle);
@@ -891,16 +1007,7 @@
                 shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
             }
             shape.closePath();
-
-            const extrudeSettings = {
-                steps: 1,
-                depth: length,
-                bevelEnabled: true,
-                bevelThickness: bevel,
-                bevelSize: bevel,
-                bevelSegments: 5
-            };
-
+            const extrudeSettings = { steps: 1, depth: length, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 5 };
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             geometry.translate(0, 0, -length / 2);
             return geometry;
@@ -910,7 +1017,6 @@
             const upper = text.toUpperCase();
             const glyphs = [];
             let width = 0;
-
             for (const ch of upper) {
                 const glyph = FONT[ch] || FONT[' '];
                 const glyphWidth = glyph[0].length;
@@ -918,7 +1024,6 @@
                 width += glyphWidth;
             }
             if (glyphs.length > 1) width += FONT_SPACING * (glyphs.length - 1);
-
             const bitmap = Array.from({ length: FONT_HEIGHT }, () => Array(width).fill(0));
             let offsetX = 0;
             glyphs.forEach((g, idx) => {
@@ -930,7 +1035,6 @@
                 }
                 offsetX += g.width + (idx < glyphs.length - 1 ? FONT_SPACING : 0);
             });
-
             return { bitmap, width, height: FONT_HEIGHT };
         }
 
@@ -939,7 +1043,6 @@
             const scaled = scaleBitmapToGrid(built.bitmap, built.width, built.height, activeCols, rows);
             const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
             const startCol = Math.floor((cols - activeCols) / 2);
-
             for (let row = 0; row < rows; row++) {
                 for (let col = 0; col < activeCols; col++) {
                     grid[row][startCol + col] = scaled[row][col];
@@ -952,33 +1055,24 @@
             const scaleFactor = Math.max(width / targetCols, height / targetRows, 1);
             const targetW = Math.min(targetCols, Math.max(1, Math.floor(width / scaleFactor)));
             const targetH = Math.min(targetRows, Math.max(1, Math.floor(height / scaleFactor)));
-
             const grid = Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
             const startCol = Math.floor((targetCols - targetW) / 2);
             const startRow = Math.floor((targetRows - targetH) / 2);
-
             for (let ty = 0; ty < targetH; ty++) {
                 const y0 = Math.floor(ty * scaleFactor);
                 const y1 = Math.min(height, Math.floor((ty + 1) * scaleFactor));
-
                 for (let tx = 0; tx < targetW; tx++) {
                     const x0 = Math.floor(tx * scaleFactor);
                     const x1 = Math.min(width, Math.floor((tx + 1) * scaleFactor));
-
                     let on = 0;
                     for (let y = y0; y < y1 && !on; y++) {
                         for (let x = x0; x < x1; x++) {
-                            if (bitmap[y][x]) {
-                                on = 1;
-                                break;
-                            }
+                            if (bitmap[y][x]) { on = 1; break; }
                         }
                     }
-
                     if (on) grid[startRow + ty][startCol + tx] = 1;
                 }
             }
-
             return grid;
         }
 
@@ -1022,7 +1116,6 @@
             const onFace = globalOnFaceIndex === 0 ? 1 : globalOnFaceIndex;
             const targetFace = endOn ? onFace : 0;
             const steps = (targetFace - group.userData.faceIndex + 3) % 3;
-
             if (group.userData.targetOn === on && steps === 0) return 0;
 
             group.userData.targetOn = on;
@@ -1039,13 +1132,8 @@
             return group.userData.animDelay + group.userData.animDuration;
         }
 
-        function delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        function makeEmptyGrid() {
-            return Array.from({ length: rows }, () => Array(cols).fill(0));
-        }
+        function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+        function makeEmptyGrid() { return Array.from({ length: rows }, () => Array(cols).fill(0)); }
 
         async function transitionLayout(expand) {
             if ((expand && layoutState.target === 1) || (!expand && layoutState.target === 0)) {
@@ -1058,17 +1146,12 @@
         async function resetAndStart(startIndex) {
             playlistRunId += 1;
             const resetId = playlistRunId;
-
-            pixels.forEach(group => {
-                group.userData.isAnimating = false;
-            });
-
+            pixels.forEach(group => { group.userData.isAnimating = false; });
             if (layoutState.progress !== 0) {
                 setLayout(false, false);
                 await delay(layoutState.duration);
                 if (resetId !== playlistRunId) return;
             }
-
             globalOnFaceIndex = 1;
             applyGrid(makeEmptyGrid(), true);
             startPlaylist(startIndex);
@@ -1077,7 +1160,6 @@
         async function playItem(item) {
             const useExpanded = !!item.expand;
             await transitionLayout(useExpanded);
-
             const activeCols = useExpanded ? cols : compactCols;
             const grid = renderTextToGrid(item.text, activeCols);
             const frameTime = applyGrid(grid);
@@ -1106,33 +1188,40 @@
 
         function animate() {
             requestAnimationFrame(animate);
-
             const now = performance.now();
+
+            // V9 更新鼠标控制
+            if (controls) controls.update();
+
+            // V9 更新反射物体旋转
+            if (scene.userData.reflectionObjects) {
+                scene.userData.reflectionObjects.forEach(obj => {
+                    obj.rotation.x += obj.userData.rotationSpeedX;
+                    obj.rotation.y += obj.userData.rotationSpeedY;
+                    obj.rotation.z += obj.userData.rotationSpeedZ;
+                });
+            }
+
             if (layoutState.animating) {
                 const t = Math.min(1, (now - layoutState.start) / layoutState.duration);
                 const ease = 1 - Math.pow(1 - t, 3);
                 const progress = layoutState.from + (layoutState.target - layoutState.from) * ease;
                 applyLayoutProgress(progress);
-                if (t >= 1) {
-                    layoutState.animating = false;
-                }
+                if (t >= 1) layoutState.animating = false;
             }
+
             pixels.forEach(group => {
                 if (!group.userData.isAnimating) return;
-
                 const elapsed = now - group.userData.animStart - (group.userData.animDelay || 0);
                 if (elapsed < 0) return;
                 const duration = group.userData.animDuration || FLIP_DURATION;
                 const t = Math.min(1, elapsed / duration);
                 const ease = 1 - Math.pow(1 - t, 3);
-
                 group.rotation.x = group.userData.startRotationX + group.userData.rotationDelta * ease;
-
                 const startLevel = group.userData.startOn ? 1 : 0;
                 const endLevel = group.userData.endOn ? 1 : 0;
                 const level = startLevel + (endLevel - startLevel) * ease;
                 applyMaterialState(group, level);
-
                 if (t >= 1) {
                     group.rotation.x = group.userData.targetRotationX;
                     group.userData.currentOn = group.userData.endOn;
@@ -1148,5 +1237,4 @@
         window.onload = init;
     </script>
 </body>
-
 </html>
