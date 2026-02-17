@@ -318,6 +318,8 @@ const experienceState = {
     trackName: '',
     active: false,
     autoOrchestration: false,
+    effectAutoSwitchLocked: false,
+    lastLyricOrchestrationIndex: -1,
     currentEffect: '',
     nextEffectSwitchAt: 0,
     effectHistory: [],
@@ -1513,11 +1515,25 @@ function renderQuickEffectButtons() {
                 }
                 return;
             }
+            const lockAutoEffect = experienceState.active
+                && experienceState.autoOrchestration
+                && !experienceState.effectAutoSwitchLocked;
+            if (lockAutoEffect) {
+                experienceState.effectAutoSwitchLocked = true;
+            }
             const changed = applySpringEffectSelection(effect, { restart: true, forceRestart: true });
             if (changed) {
-                updateExperienceStatus(`已切换动画：${effect}`);
+                if (lockAutoEffect) {
+                    updateExperienceStatus(`已切换动画：${effect}（动画已锁定为手动，不再自动编排）`);
+                } else {
+                    updateExperienceStatus(`已切换动画：${effect}`);
+                }
             } else {
-                updateExperienceStatus(`已重启动画：${effect}`);
+                if (lockAutoEffect) {
+                    updateExperienceStatus(`已重启动画：${effect}（动画已锁定为手动，不再自动编排）`);
+                } else {
+                    updateExperienceStatus(`已重启动画：${effect}`);
+                }
             }
         });
         effectList.appendChild(button);
@@ -2639,6 +2655,9 @@ function updateLyricSync(now) {
             return;
         }
         applyLyricLine(nextIndex);
+        if (!lineDebugActive) {
+            orchestrateVisualsByLyricLine(nextIndex, now);
+        }
     }
 
     if (nextIndex >= 0 && !audio.paused) {
@@ -2879,6 +2898,123 @@ function chooseNextEffectByMusic(metrics, now) {
     return bestEffect;
 }
 
+function chooseNextEffectByLyricLine(metrics, now) {
+    const current = normalizeSpringEffectName(springWaveConfig.effect);
+    const preferred = chooseNextEffectByMusic(metrics, now);
+    if (preferred !== current) {
+        return preferred;
+    }
+    const energy = metrics.energy;
+    const low = metrics.low;
+    const mid = metrics.mid;
+    const high = metrics.high;
+    const flux = metrics.flux;
+    const bpmNorm = metrics.bpm > 0 ? clamp((metrics.bpm - 70) / 90, 0, 1) : 0.45;
+    const scores = {
+        '效果1-行波': (1 - bpmNorm) * 0.7 + (mid * 0.5 + energy * 0.26),
+        '效果2-行内波': bpmNorm * 0.6 + (mid * 0.46 + high * 0.36 + flux * 0.24),
+        '效果3-扫光': low * 0.86 + flux * 0.55 + bpmNorm * 0.26,
+        '效果4-双轨流色': mid * 0.78 + (1 - Math.abs(low - high)) * 0.48 + energy * 0.24,
+        '效果5-柱形均衡波': high * 0.85 + flux * 0.76 + energy * 0.4,
+        '效果6-矩形闪烁块': flux * 0.86 + high * 0.48 + energy * 0.3 + (bpmNorm > 0.62 ? 0.15 : 0)
+    };
+    const recent = new Set(experienceState.effectHistory.slice(-2));
+    let best = current;
+    let bestScore = -Infinity;
+    for (const effect of WAVE_EFFECTS) {
+        if (effect === current) {
+            continue;
+        }
+        let score = scores[effect] || 0;
+        if (recent.has(effect)) {
+            score -= 0.18;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            best = effect;
+        }
+    }
+    return best;
+}
+
+function shiftMusicColorPresetByLyricLine(metrics, now) {
+    if (!experienceState.autoOrchestration) {
+        return false;
+    }
+    const pool = experienceState.colorPresetPool && experienceState.colorPresetPool.length
+        ? experienceState.colorPresetPool
+        : getMusicColorPresetPool();
+    experienceState.colorPresetPool = pool;
+    if (pool.length < 2) {
+        return false;
+    }
+    const current = String(presetState.theme || '');
+    const candidates = pool.filter((name) => name !== current && colorPresets[name]);
+    if (!candidates.length) {
+        return false;
+    }
+
+    let bestName = candidates[0];
+    let bestScore = -Infinity;
+    for (const name of candidates) {
+        let score = getColorPresetScore(name, metrics);
+        if (experienceState.colorHistory.slice(-2).includes(name)) {
+            score -= 0.2;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestName = name;
+        }
+    }
+
+    applyPreset(bestName, { transition: PRESET_TRANSITION_MODES.BLEND });
+    experienceState.colorHistory.push(bestName);
+    if (experienceState.colorHistory.length > 12) {
+        experienceState.colorHistory.shift();
+    }
+    experienceState.lastColorShiftAt = now;
+    experienceState.nextColorShiftAt = now;
+    return true;
+}
+
+function orchestrateVisualsByLyricLine(lineIndex, now) {
+    if (!experienceState.autoOrchestration || !musicDriveState.running) {
+        return;
+    }
+    if (!Number.isInteger(lineIndex) || lineIndex < 0) {
+        return;
+    }
+    if (lineIndex === experienceState.lastLyricOrchestrationIndex) {
+        return;
+    }
+    experienceState.lastLyricOrchestrationIndex = lineIndex;
+
+    const metrics = getMusicMetricsSnapshot();
+    const prevEffect = normalizeSpringEffectName(springWaveConfig.effect);
+    let nextEffect = prevEffect;
+    let effectChanged = false;
+
+    if (!experienceState.effectAutoSwitchLocked) {
+        nextEffect = chooseNextEffectByLyricLine(metrics, now);
+        if (nextEffect !== prevEffect) {
+            effectChanged = true;
+        }
+        tuneEffectWithMusic(nextEffect, metrics);
+        applySpringEffectSelection(nextEffect, { restart: true, forceRestart: true });
+        experienceState.effectHistory.push(nextEffect);
+        if (experienceState.effectHistory.length > 16) {
+            experienceState.effectHistory.shift();
+        }
+    } else {
+        tuneEffectWithMusic(prevEffect, metrics);
+        nextEffect = prevEffect;
+    }
+
+    setCinematicCameraTarget(nextEffect, metrics, now, effectChanged);
+    shiftMusicColorPresetByLyricLine(metrics, now);
+    updateExperienceStatus(`正在播放：${experienceState.trackName || '当前音乐'} ｜ ${nextEffect} ｜ 配色 ${presetState.theme}`);
+}
+
 function tuneEffectWithMusic(effect, metrics) {
     const energy = metrics.energy;
     const flux = metrics.flux;
@@ -3034,6 +3170,8 @@ function switchEffectByMusic(now) {
 function stopMusicOrchestration() {
     experienceState.active = false;
     experienceState.autoOrchestration = false;
+    experienceState.effectAutoSwitchLocked = false;
+    experienceState.lastLyricOrchestrationIndex = -1;
     experienceState.currentEffect = '';
     experienceState.nextEffectSwitchAt = 0;
     experienceState.effectHistory = [];
@@ -3085,6 +3223,8 @@ async function startMusicExperience(trackName = '') {
     experienceState.cameraTarget.fov = config.camFov;
     experienceState.active = true;
     experienceState.autoOrchestration = true;
+    experienceState.effectAutoSwitchLocked = false;
+    experienceState.lastLyricOrchestrationIndex = -1;
     springWaveConfig.flowRenderMode = DUAL_TRACK_FLOW_MODE_FLIP;
     experienceState.currentEffect = '';
     experienceState.startedAt = performance.now();
@@ -3122,6 +3262,17 @@ function updateMusicOrchestration(now) {
     }
     const audio = musicDriveState.audioEl;
     if (!audio || audio.paused) {
+        return;
+    }
+
+    // 有歌词时间轴时，切换逻辑由 updateLyricSync 按“每句歌词”驱动。
+    if (lyricState.timeline.length > 0) {
+        return;
+    }
+
+    if (experienceState.effectAutoSwitchLocked) {
+        const metrics = getMusicMetricsSnapshot();
+        maybeShiftMusicColorPreset(metrics, now);
         return;
     }
 
