@@ -1,0 +1,61 @@
+@font-face {
+    font-family: 'Zpix';
+    src: url('../vendor/fonts/zpix.woff2') format('woff2'),
+         url('../vendor/fonts/zpix.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Zpix', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #eee;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+            z-index: 10;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #gui-container {
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+            z-index: 9999;
+            pointer-events: auto;
+        }
+
+        #gui-container .dg.main {
+            margin-top: 0 !important;
+        }
+
+        #settings-toggle {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 10001;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(12, 16, 22, 0.88);
+            color: #e7edf7;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+        }
+
+        #settings-toggle:hover {
+            background: rgba(22, 28, 38, 0.95);
+        }

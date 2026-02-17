@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单个三棱柱模型查看 - 圆角矩形版</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #eee;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            pointer-events: none;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 300px;
+        }
+
+        #ui h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        #ui p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+
+        .controls-hint {
+            font-size: 0.8rem !important;
+            color: #888 !important;
+            margin-top: 15px !important;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h3>三棱柱详情 (圆角)</h3>
+        <p>每个面现已调整为圆角矩形风格</p>
+        <p class="controls-hint">左键拖拽旋转 | 右键拖拽平移 | 滚轮缩放</p>
+    </div>
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls, prism;
+
+        // 尺寸定义
+        const UNIT_SIZE = 1.0;
+
+        function init() {
+            // 场景初始化
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // 相机设置
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(3, 2, 4);
+
+            // 渲染器设置
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 控制器设置
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 2.0;
+
+            // 灯光设置
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 8, 5);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.bias = -0.001;
+            scene.add(dirLight);
+
+            const fillLight = new THREE.DirectionalLight(0xbbaaff, 0.4);
+            fillLight.position.set(-5, 2, -5);
+            scene.add(fillLight);
+
+            // 创建圆角三棱柱
+            // 参数: triangleSize, cornerRadius, depth(length)
+            const geometry = createRoundedPrismGeometry(UNIT_SIZE, 0.15, UNIT_SIZE);
+
+            const material = new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.3,
+                metalness: 0.1,
+            });
+
+            prism = new THREE.Mesh(geometry, material);
+            prism.castShadow = true;
+            prism.receiveShadow = true;
+
+            // 修正朝向：ExtrudeGeometry 默认沿 Z 轴。我们需要它像之前一样沿 X 轴。
+            // 旋转 90 度绕 Y 轴
+            prism.rotation.y = Math.PI / 2;
+            // 旋转 30 度绕 X 轴，让顶部面水平 (因为我们的形状是倒三角)
+            // 形状生成时可以控制，不需要额外旋转
+
+            scene.add(prism);
+
+            // 辅助网格
+            const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+            gridHelper.position.y = -1; // 下移一点，让物体悬浮
+            scene.add(gridHelper);
+
+            // 事件监听
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function createRoundedPrismGeometry(size, radius, depth) {
+            // 1. 创建圆角三角形 Shape
+            const shape = new THREE.Shape();
+            const R = size / Math.sqrt(3);
+            const r = radius;
+
+            // 计算从中心到各个圆角圆心的距离
+            // R 是到顶点的距离。r 是圆角半径。
+            // 圆心位置在 (R - 2r) 处 (对于等边三角形 30-60-90 几何关系)
+            // sin(30) = 0.5. r / sin(30) = 2r.
+            const dist = R - 2 * r;
+
+            // 我们使用倒三角形 (角朝下)，这样顶部是平的，符合"三棱柱"的一般放置
+            // 顶点角度: -90 (下), 30 (右上), 150 (左上)
+            const startAngle = -Math.PI / 2;
+
+            for (let i = 0; i < 3; i++) {
+                const angle = startAngle + i * (Math.PI * 2 / 3);
+                const cx = dist * Math.cos(angle);
+                const cy = dist * Math.sin(angle);
+
+                // 绘制圆弧
+                // 每个角覆盖 120 度 (180 - 60)
+                shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
+            }
+            shape.closePath();
+
+            // 2. 挤压几何体 (Extrude)
+            // bevelEnabled: true 给两端增加圆角，这样侧面看起来就是圆角矩形
+            const extrudeSettings = {
+                steps: 1,
+                depth: depth,
+                bevelEnabled: true,
+                bevelThickness: r / 2, // 倒角厚度
+                bevelSize: r / 2,      // 倒角延伸大小
+                bevelSegments: 5,    // 倒角分段光滑度
+                curveSegments: 12    // 形状曲线分段
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.center(); // 居中几何体
+
+            // 3. 应用顶点颜色
+            // 逻辑: 根据法线方向分配颜色
+            // 顶面 (Normal approx 0, 1, 0)
+            // 左下 (Normal approx -0.87, -0.5, 0) (从正视图看)
+            // 右下 (Normal approx 0.87, -0.5, 0)
+            // 端面 (Normal approx 0, 0, 1)
+
+            const positionAttribute = geometry.getAttribute('position');
+            // 如果只有 position，我们需要先计算法线 (ExtrudeGeometry 通常会生成)
+            if (!geometry.getAttribute('normal')) {
+                geometry.computeVertexNormals();
+            }
+
+            const normalAttribute = geometry.getAttribute('normal');
+            const colorAttribute = new THREE.BufferAttribute(new Float32Array(positionAttribute.count * 3), 3);
+
+            const colorTop = new THREE.Color(0.2, 0.5, 0.9);   // 蓝
+            const colorLeft = new THREE.Color(0.9, 0.2, 0.4);  // 红
+            const colorRight = new THREE.Color(0.9, 0.8, 0.1); // 黄
+            const colorCap = new THREE.Color(0.15, 0.15, 0.15); // 深灰端面
+
+            const _normal = new THREE.Vector3();
+            const _color = new THREE.Color();
+
+            for (let i = 0; i < positionAttribute.count; i++) {
+                _normal.set(
+                    normalAttribute.getX(i),
+                    normalAttribute.getY(i),
+                    normalAttribute.getZ(i)
+                );
+
+                // 检查是否是端面 (Z轴分量大)
+                if (Math.abs(_normal.z) > 0.8) {
+                    _color.copy(colorCap);
+                } else {
+                    // 侧面，根据 XY 平面角度判断
+                    // 注意：ExtrudeGeometry 是在 XY 平面绘制后沿 Z 挤压
+                    // 所以"顶面"对应 Y+
+                    // "右下" 对应 X+ Y-
+                    // "左下" 对应 X- Y-
+
+                    const angle = Math.atan2(_normal.y, _normal.x); // -PI to PI
+                    const deg = angle * 180 / Math.PI;
+
+                    // 顶面 (90度)
+                    if (deg > 30 && deg < 150) {
+                        _color.copy(colorTop);
+                    }
+                    // 左面 (150 ~ 270 aka -90) -> 实际上是 (150 ~ 180) U (-180 ~ -90)
+                    else if (deg >= 150 || deg <= -90) {
+                        _color.copy(colorLeft);
+                    }
+                    // 右面 (-90 ~ 30)
+                    else {
+                        _color.copy(colorRight);
+                    }
+                }
+
+                colorAttribute.setXYZ(i, _color.r, _color.g, _color.b);
+            }
+
+            geometry.setAttribute('color', colorAttribute);
+
+            return geometry;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>

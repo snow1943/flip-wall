@@ -1,0 +1,3681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 翻转墙 - 金属质感 v12</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #eee;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+            z-index: 10;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #gui-container {
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+            z-index: 9999;
+            pointer-events: auto;
+        }
+
+        #gui-container .dg.main {
+            margin-top: 0 !important;
+        }
+
+        #settings-toggle {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 10001;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(12, 16, 22, 0.88);
+            color: #e7edf7;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+        }
+
+        #settings-toggle:hover {
+            background: rgba(22, 28, 38, 0.95);
+        }
+    </style>
+</head>
+
+    <body>
+        <div id="ui">
+            <h2>3D 像素翻转墙 v12</h2>
+            <p>左键旋转 | 右键平移 | 滚轮缩放</p>
+            <p id="interaction-hint">展示模式：按序列显示数字/英文/中文</p>
+            <p id="mode-hint">当前模式：展示模式（支持文字播放）</p>
+            <p id="music-hint">音乐驱动：未加载音源</p>
+        </div>
+        <div id="gui-container"></div>
+        <button id="settings-toggle" type="button">收起设置</button>
+        <input id="music-file-input" type="file" accept="audio/*,video/*" style="display:none" />
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- dat.GUI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <script>
+        if (typeof dat === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/dat.gui@0.7.9/build/dat.gui.min.js"><\\/script>');
+        }
+    </script>
+
+    <script>
+        let scene, camera, renderer, raycaster, mouse, controls;
+        let spotLight, fillLight, rimLight, backLight;
+        let sweepLights = [];
+        let isCameraInteracting = false;
+        const pixels = []; // Stores the prism groups
+        const DEFAULT_ROWS = 12;
+        const DEFAULT_COLS = 22;
+        const DEFAULT_GAP = 0.057;
+
+        // 默认：金属灰 + 翻转金色。高光条避免纯白，防止面片被冲成白块
+        const BASE_MATERIAL_PARAMS = {
+            roughness: 0.11,
+            metalness: 1.0,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.02,
+            envMapIntensity: 4.2
+        };
+
+        const BASE_FACE_COLOR_PARAMS = {
+            globalSeparation: 1.28,
+
+            color1: '#98a3b3',
+            hueShift1: -0.015,
+            saturation1: 0.55,
+            lightness1: 1.05,
+
+            color2: '#6f7b8a',
+            hueShift2: -0.01,
+            saturation2: 0.62,
+            lightness2: 0.86,
+
+            color3: '#d5a85c',
+            hueShift3: 0.01,
+            saturation3: 1.26,
+            lightness3: 0.95
+        };
+
+        const BASE_ENV_PARAMS = {
+            bgTop: '#151518',
+            bgMid: '#10161f',
+            bgBottom: '#1d232e',
+
+            strip1X: 80,
+            strip1Width: 100,
+            strip1Alpha: 0.56,
+            strip1Top: '#c6cfdb',
+            strip1Bottom: '#7f8da2',
+
+            strip2X: 320,
+            strip2Width: 120,
+            strip2Alpha: 0.48,
+            strip2Top: '#b4c0d0',
+            strip2Bottom: '#6f7e93',
+
+            strip3X: 640,
+            strip3Width: 130,
+            strip3Alpha: 0.42,
+            strip3Top: '#b4a483',
+            strip3Bottom: '#776846',
+
+            block1Enabled: true,
+            block1X: 240,
+            block1Y: 278,
+            block1Width: 340,
+            block1Height: 86,
+            block1Start: '#6d7fa8',
+            block1End: '#435270',
+            block1Alpha: 0.16,
+
+            block2Enabled: true,
+            block2X: 96,
+            block2Y: 118,
+            block2Width: 220,
+            block2Height: 58,
+            block2Start: '#98a7bd',
+            block2End: '#606b7e',
+            block2Alpha: 0.1,
+
+            sparkleCount: 14,
+            sparkleSize: 5,
+            sparkleAlpha: 0.32
+        };
+
+        const materialParams = { ...BASE_MATERIAL_PARAMS };
+        const faceColorParams = { ...BASE_FACE_COLOR_PARAMS };
+        const envParams = { ...BASE_ENV_PARAMS };
+
+        const DEFAULT_COLOR_PRESETS = {
+            '金属灰翻转金色': {},
+            '春节纯洁红': {
+                materialParams: {
+                    roughness: 0.09,
+                    envMapIntensity: 3.9
+                },
+                faceColorParams: {
+                    globalSeparation: 1.42,
+                    color1: '#d11533',
+                    hueShift1: 0.0,
+                    saturation1: 1.45,
+                    lightness1: 0.95,
+                    color2: '#f1c35c',
+                    hueShift2: -0.01,
+                    saturation2: 1.28,
+                    lightness2: 1.02,
+                    color3: '#7f0019',
+                    hueShift3: 0.01,
+                    saturation3: 1.32,
+                    lightness3: 0.78
+                },
+                envParams: {
+                    bgTop: '#1a080a',
+                    bgMid: '#2b0b0f',
+                    bgBottom: '#120608',
+                    strip1Top: '#e7c78b',
+                    strip1Bottom: '#b98a43',
+                    strip1Alpha: 0.46,
+                    strip2Top: '#d15f6f',
+                    strip2Bottom: '#8f2335',
+                    strip2Alpha: 0.5,
+                    strip3Top: '#dfb76c',
+                    strip3Bottom: '#926019',
+                    strip3Alpha: 0.42,
+                    block1Start: '#a60f2d',
+                    block1End: '#5d0718',
+                    block1Alpha: 0.2,
+                    block2Start: '#f0bc5f',
+                    block2End: '#96601d',
+                    block2Alpha: 0.13,
+                    sparkleCount: 18,
+                    sparkleAlpha: 0.38
+                }
+            },
+            '钛蓝冷光': {
+                materialParams: {
+                    roughness: 0.08,
+                    envMapIntensity: 4.5
+                },
+                faceColorParams: {
+                    globalSeparation: 1.3,
+                    color1: '#c0cddd',
+                    hueShift1: -0.02,
+                    saturation1: 0.75,
+                    lightness1: 1.08,
+                    color2: '#6f8fb8',
+                    hueShift2: -0.04,
+                    saturation2: 1.2,
+                    lightness2: 0.92,
+                    color3: '#8dc8d8',
+                    hueShift3: 0.015,
+                    saturation3: 1.02,
+                    lightness3: 0.95
+                },
+                envParams: {
+                    bgTop: '#0c1018',
+                    bgMid: '#101a2b',
+                    bgBottom: '#0b121f',
+                    strip1Top: '#b8c6da',
+                    strip1Bottom: '#6f85a4',
+                    strip2Top: '#9eb6d8',
+                    strip2Bottom: '#4f6c95',
+                    strip3Top: '#a5c7d3',
+                    strip3Bottom: '#4f7d8f',
+                    block1Start: '#4f6e9b',
+                    block1End: '#30435f',
+                    block1Alpha: 0.2,
+                    block2Start: '#85a8c9',
+                    block2End: '#4a6481',
+                    block2Alpha: 0.11
+                }
+            },
+            '墨黑铬面': {
+                materialParams: {
+                    roughness: 0.14,
+                    clearcoat: 0.9,
+                    envMapIntensity: 3.2
+                },
+                faceColorParams: {
+                    globalSeparation: 1.18,
+                    color1: '#4a505a',
+                    hueShift1: -0.015,
+                    saturation1: 0.6,
+                    lightness1: 0.78,
+                    color2: '#262b34',
+                    hueShift2: 0.0,
+                    saturation2: 0.85,
+                    lightness2: 0.7,
+                    color3: '#9ea8b7',
+                    hueShift3: 0.0,
+                    saturation3: 0.7,
+                    lightness3: 0.9
+                },
+                envParams: {
+                    bgTop: '#0a0a0b',
+                    bgMid: '#11151b',
+                    bgBottom: '#090b0f',
+                    strip1Top: '#aab3c0',
+                    strip1Bottom: '#606c7e',
+                    strip1Alpha: 0.42,
+                    strip2Top: '#8f9cab',
+                    strip2Bottom: '#4b5567',
+                    strip2Alpha: 0.38,
+                    strip3Top: '#adb6c4',
+                    strip3Bottom: '#687486',
+                    strip3Alpha: 0.34,
+                    block1Start: '#44506a',
+                    block1End: '#2a3342',
+                    block1Alpha: 0.12,
+                    block2Alpha: 0.06,
+                    sparkleCount: 10,
+                    sparkleAlpha: 0.24
+                }
+            },
+            '翡翠鎏金': {
+                materialParams: {
+                    roughness: 0.1,
+                    envMapIntensity: 4.0
+                },
+                faceColorParams: {
+                    globalSeparation: 1.34,
+                    color1: '#2f7f66',
+                    hueShift1: -0.02,
+                    saturation1: 1.2,
+                    lightness1: 0.9,
+                    color2: '#d9b25e',
+                    hueShift2: 0.0,
+                    saturation2: 1.22,
+                    lightness2: 1.0,
+                    color3: '#0f4f3f',
+                    hueShift3: 0.01,
+                    saturation3: 1.15,
+                    lightness3: 0.78
+                },
+                envParams: {
+                    bgTop: '#081412',
+                    bgMid: '#0f2420',
+                    bgBottom: '#07110f',
+                    strip1Top: '#b7d1c5',
+                    strip1Bottom: '#628f7d',
+                    strip2Top: '#d0bc8f',
+                    strip2Bottom: '#9a7b43',
+                    strip3Top: '#95c0ac',
+                    strip3Bottom: '#4f7e6d',
+                    block1Start: '#3a8a71',
+                    block1End: '#1d4f40',
+                    block1Alpha: 0.2,
+                    block2Start: '#c7a766',
+                    block2End: '#6f5528',
+                    block2Alpha: 0.11
+                }
+            },
+            '暮色玫瑰铜': {
+                materialParams: {
+                    roughness: 0.085,
+                    envMapIntensity: 4.1
+                },
+                faceColorParams: {
+                    globalSeparation: 1.32,
+                    color1: '#b88497',
+                    hueShift1: -0.01,
+                    saturation1: 1.1,
+                    lightness1: 0.97,
+                    color2: '#cf8c63',
+                    hueShift2: 0.02,
+                    saturation2: 1.22,
+                    lightness2: 0.95,
+                    color3: '#5f3f4f',
+                    hueShift3: 0.0,
+                    saturation3: 1.15,
+                    lightness3: 0.8
+                },
+                envParams: {
+                    bgTop: '#170d15',
+                    bgMid: '#25121d',
+                    bgBottom: '#120911',
+                    strip1Top: '#d2a8ba',
+                    strip1Bottom: '#8f687c',
+                    strip2Top: '#c79a88',
+                    strip2Bottom: '#875e4f',
+                    strip3Top: '#bba6c6',
+                    strip3Bottom: '#6e5879',
+                    block1Start: '#935b75',
+                    block1End: '#57344a',
+                    block1Alpha: 0.2,
+                    block2Start: '#c58f67',
+                    block2End: '#6f4b33',
+                    block2Alpha: 0.12
+                }
+            }
+        };
+
+        const presetState = {
+            theme: '金属灰翻转金色'
+        };
+
+        const PRESET_STORAGE_KEY = 'flip_wall_v12_presets';
+
+        const sceneModeConfig = {
+            mode: '展示模式',
+            springAutoResize: true,
+            springRows: 48,
+            springCols: 64,
+            strokePixels: 1
+        };
+
+        // 从马年元素.png 自动抽取后的精确布局（单位：模块）
+        // 每行用连续区间表示，格式 [rowIndex, [[startCol, endCol], ...]]
+        const SPRING_GALA_LAYOUT_COLS = 52;
+        const SPRING_GALA_LAYOUT_ROWS = 40;
+        const SPRING_GALA_ROW_SEGMENTS = [
+            [0, [[4, 23]]],
+            [1, [[4, 23]]],
+            [2, [[4, 23]]],
+            [3, [[4, 23]]],
+            [4, [[4, 7], [20, 23]]],
+            [5, [[4, 7], [20, 23]]],
+            [6, [[4, 7], [20, 23]]],
+            [7, [[4, 7], [20, 23]]],
+            [8, [[4, 7], [12, 15], [20, 23]]],
+            [9, [[4, 7], [12, 15], [20, 23]]],
+            [10, [[4, 7], [12, 15], [20, 23]]],
+            [11, [[4, 7], [12, 15], [20, 23]]],
+            [12, [[4, 15], [20, 23]]],
+            [13, [[4, 15], [20, 23]]],
+            [14, [[4, 15], [20, 23]]],
+            [15, [[4, 15], [20, 23]]],
+            [16, [[20, 23]]],
+            [17, [[20, 23]]],
+            [18, [[20, 23]]],
+            [19, [[20, 23]]],
+            [20, [[0, 23]]],
+            [21, [[0, 23]]],
+            [22, [[0, 23]]],
+            [23, [[0, 23]]],
+            [24, [[0, 3], [36, 51]]],
+            [25, [[0, 3], [36, 51]]],
+            [26, [[0, 3], [36, 51]]],
+            [27, [[0, 3], [36, 51]]],
+            [28, [[0, 3], [8, 31], [36, 39]]],
+            [29, [[0, 3], [8, 31], [36, 39]]],
+            [30, [[0, 3], [8, 31], [36, 39]]],
+            [31, [[0, 3], [8, 31], [36, 39]]],
+            [32, [[0, 11], [28, 31], [36, 39]]],
+            [33, [[0, 11], [28, 31], [36, 39]]],
+            [34, [[0, 11], [28, 31], [36, 39]]],
+            [35, [[0, 11], [28, 31], [36, 39]]],
+            [36, [[28, 39]]],
+            [37, [[28, 39]]],
+            [38, [[28, 39]]],
+            [39, [[28, 39]]]
+        ];
+
+        const displayConfig = {
+            sequence: '10|9|8|7|6|5|4|3|2|1|HELLO|WORLD|你好|新年快乐',
+            intervalMs: 1200,
+            onFace: 2,
+            threshold: 120,
+            textScale: 0.78,
+            bold: true,
+            compactCols: 10,
+            autoExpand: true,
+            autoExpandMaxRows: 120,
+            autoExpandMaxCols: 240,
+            loop: true,
+            cjkTargetRows: 20,
+            cjkWidthEstimate: 5.8,
+            cjkGapCells: 0.6,
+            cjkAdvanceRatio: 0.88,
+            cjkTrackingRatio: 0.08,
+            cjkEdgeThreshold: 96,
+            cjkFillRatio: 0.08,
+            cjkThinPasses: 0
+        };
+
+        const playbackState = {
+            running: false,
+            runId: 0,
+            lastText: ''
+        };
+
+        const springWaveConfig = {
+            effect: '效果1-行波',
+            direction: '从上到下',
+            rowIntervalMs: 130,
+            stagePauseMs: 90,
+            innerDelayMs: 14,
+            innerDirection: '从左到右',
+            damping: 0.11
+        };
+
+        const sweepLightConfig = {
+            color: '#ffe3a6',
+            intensity: 6.2,
+            angle: 0.98,
+            penumbra: 0.92,
+            distance: 170,
+            z: 24,
+            durationMs: 2600,
+            overscan: 0.24,
+            xOffset: 0,
+            count: 5,
+            spanScale: 1.08,
+            edgeAttenuation: 0.25
+        };
+
+        const springWaveState = {
+            running: false,
+            runId: 0
+        };
+
+        const musicDriveConfig = {
+            sourceUrl: '',
+            autoPlayAfterLoad: false,
+            sourceLoop: true,
+            autoTrigger: true,
+            smoothing: 0.72,
+            gainBoost: 1.6,
+            beatThreshold: 0.3,
+            beatFluxThreshold: 0.02,
+            beatCooldownMs: 170,
+            triggerIntervalMs: 260,
+            minRowIntervalMs: 30,
+            maxRowIntervalMs: 280,
+            minDamping: 0.07,
+            maxDamping: 0.22
+        };
+
+        const musicDriveState = {
+            audioEl: null,
+            audioContext: null,
+            sourceNode: null,
+            analyser: null,
+            timeData: null,
+            freqData: null,
+            graphConnected: false,
+            running: false,
+            smoothedEnergy: 0,
+            lastBeatAt: 0,
+            lastTriggerAt: 0,
+            lastUiAt: 0,
+            objectUrl: ''
+        };
+
+        const musicDriveUi = {
+            status: '音乐驱动：未加载音源'
+        };
+
+        const FONT_HEIGHT = 7;
+        const FONT_SPACING = 1;
+        const PIXEL_FONT = {
+            '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+            '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+            '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+            '3': ['01110', '10001', '00001', '00110', '00001', '10001', '01110'],
+            '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+            '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+            '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+            '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+            '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+            '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+            'A': ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
+            'B': ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+            'C': ['01110', '10001', '10000', '10000', '10000', '10001', '01110'],
+            'D': ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
+            'E': ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
+            'F': ['11111', '10000', '10000', '11110', '10000', '10000', '10000'],
+            'G': ['01110', '10001', '10000', '10111', '10001', '10001', '01110'],
+            'H': ['10001', '10001', '10001', '11111', '10001', '10001', '10001'],
+            'I': ['01110', '00100', '00100', '00100', '00100', '00100', '01110'],
+            'J': ['00001', '00001', '00001', '00001', '10001', '10001', '01110'],
+            'K': ['10001', '10010', '10100', '11000', '10100', '10010', '10001'],
+            'L': ['10000', '10000', '10000', '10000', '10000', '10000', '11111'],
+            'M': ['10001', '11011', '10101', '10001', '10001', '10001', '10001'],
+            'N': ['10001', '11001', '10101', '10011', '10001', '10001', '10001'],
+            'O': ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
+            'P': ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+            'Q': ['01110', '10001', '10001', '10001', '10101', '10010', '01101'],
+            'R': ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
+            'S': ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
+            'T': ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
+            'U': ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
+            'V': ['10001', '10001', '10001', '10001', '10001', '01010', '00100'],
+            'W': ['10001', '10001', '10001', '10001', '10101', '10101', '01010'],
+            'X': ['10001', '10001', '01010', '00100', '01010', '10001', '10001'],
+            'Y': ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
+            'Z': ['11111', '00001', '00010', '00100', '01000', '10000', '11111'],
+            ' ': ['00000', '00000', '00000', '00000', '00000', '00000', '00000']
+        };
+
+        const panelState = {
+            visible: true
+        };
+
+        const guiRefs = {
+            playbackFolder: null,
+            springWaveFolder: null,
+            musicFolder: null
+        };
+
+        // Constants from prism_v2.html adjustment
+        const UNIT_SIZE = 1.0;
+        const PLATE_THICKNESS = 0.001;
+        const BEVEL_THICKNESS = 0.001;
+        const CORNER_RADIUS = 0.3;
+        const GAP_OFFSET = 0.0;
+        const PLATE_SCALE = 1.0;
+
+        const innerParams = {
+            size: 0.54,
+            length: 0.84,
+            radius: 0.05,
+            bevel: 0.0,
+            color: '#111111',
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        // 初始配置
+        const config = {
+            initRotationX: Math.PI / 2, // 90度，让面完全垂直
+            initRotationY: 0.0,
+            initRotationZ: 0.0,
+            gap: DEFAULT_GAP,
+            gridRows: DEFAULT_ROWS,
+            gridCols: DEFAULT_COLS,
+
+            // 相机设置
+            camX: 0, camY: 0, camZ: 33,
+            camFov: 32,
+
+
+            // 灯光设置 (聚光灯)
+            spotLightX: 7, spotLightY: 12, spotLightZ: 28,
+            spotLightIntensity: 1.8,
+            spotLightAngle: Math.PI / 4, // 45度
+            spotLightPenumbra: 0.5, // 边缘柔化
+
+            fillLightX: -10, fillLightY: 3, fillLightZ: 18,
+            fillLightIntensity: 0.55
+        };
+
+        // Shared Geometry and Material (for performance)
+        let plateGeometry, innerGeometry;
+        let materials = [];
+        let innerMaterial;
+        let guiPanel = null;
+        let colorPresets = {};
+        let generatedEnvMap = null;
+        let envRebuildTimer = null;
+        let activeMask = [];
+        let activeWallBounds = null;
+        const pixelLookup = new Map();
+        const edgeRimMeshes = [];
+        const freeSwipeState = {
+            pointerDown: false,
+            pointerId: null,
+            lastGridKey: ''
+        };
+        const glyphBitmapCache = new Map();
+        const CJK_BASE_CELL_SIZE = 16;
+
+        function gridKey(row, col) {
+            return `${row},${col}`;
+        }
+
+        function isDisplayMode() {
+            return sceneModeConfig.mode === '展示模式';
+        }
+
+        function isFreeMode() {
+            return sceneModeConfig.mode === '自由模式';
+        }
+
+        function isSpringFestivalMode() {
+            return sceneModeConfig.mode === '春晚模式';
+        }
+
+        function resetFreeSwipeState() {
+            freeSwipeState.pointerDown = false;
+            freeSwipeState.pointerId = null;
+            freeSwipeState.lastGridKey = '';
+        }
+
+        function updateModeHint() {
+            const hint = document.getElementById('mode-hint');
+            const interactionHint = document.getElementById('interaction-hint');
+            if (isSpringFestivalMode()) {
+                if (hint) {
+                    hint.textContent = '当前模式：春晚模式（按马年元素 PNG 布局 + 2 像素包边）';
+                }
+                if (interactionHint) {
+                    interactionHint.textContent = '春晚模式：行波 / 扫光 / 音乐驱动';
+                }
+                return;
+            }
+            if (isFreeMode()) {
+                if (hint) {
+                    hint.textContent = '当前模式：自由模式（仅鼠标滑动翻转）';
+                }
+                if (interactionHint) {
+                    interactionHint.textContent = '自由模式：按住左键在像素上滑动翻转';
+                }
+                return;
+            }
+            if (hint) {
+                hint.textContent = '当前模式：展示模式（支持文字播放）';
+            }
+            if (interactionHint) {
+                interactionHint.textContent = '展示模式：按序列显示数字/英文/中文';
+            }
+        }
+
+        function refreshModeUiState() {
+            if (guiRefs.playbackFolder && guiRefs.playbackFolder.domElement) {
+                guiRefs.playbackFolder.domElement.style.display = isDisplayMode() ? '' : 'none';
+            }
+            if (guiRefs.springWaveFolder && guiRefs.springWaveFolder.domElement) {
+                guiRefs.springWaveFolder.domElement.style.display = isSpringFestivalMode() ? '' : 'none';
+            }
+            if (guiRefs.musicFolder && guiRefs.musicFolder.domElement) {
+                guiRefs.musicFolder.domElement.style.display = isSpringFestivalMode() ? '' : 'none';
+            }
+            if (controls) {
+                controls.enabled = !isFreeMode();
+            }
+            if (!isFreeMode()) {
+                resetFreeSwipeState();
+            }
+            isCameraInteracting = false;
+            updateModeHint();
+        }
+
+        function getSpringRecommendedGrid() {
+            const moduleSize = Math.max(1, Math.floor(sceneModeConfig.strokePixels));
+            const bounds = getSpringModuleBounds();
+            return {
+                rows: bounds.rows * moduleSize + 8,
+                cols: bounds.cols * moduleSize + 12
+            };
+        }
+
+        function applySceneMode() {
+            stopPlayback();
+            stopSpringWave();
+            if (!isSpringFestivalMode()) {
+                stopMusicDrive({ keepSource: true, pauseAudio: true });
+            }
+            if (isSpringFestivalMode()) {
+                if (sceneModeConfig.springAutoResize) {
+                    const recommended = getSpringRecommendedGrid();
+                    config.gridRows = Math.max(
+                        1,
+                        Math.max(
+                            Math.floor(config.gridRows),
+                            Math.floor(sceneModeConfig.springRows),
+                            recommended.rows
+                        )
+                    );
+                    config.gridCols = Math.max(
+                        1,
+                        Math.max(
+                            Math.floor(config.gridCols),
+                            Math.floor(sceneModeConfig.springCols),
+                            recommended.cols
+                        )
+                    );
+                }
+                playbackState.lastText = '';
+            }
+            refreshModeUiState();
+            createPixelWall();
+            if (guiPanel) {
+                updateGuiFolderDisplay(guiPanel);
+            }
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101317);
+
+            // 透视相机（更有纵深和透视感）
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(config.camFov, aspect, 0.1, 1000);
+            camera.position.set(config.camX, config.camY, config.camZ);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.3;
+            renderer.shadowMap.enabled = true; // Enable shadows if needed
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.enablePan = true;
+            controls.screenSpacePanning = true;
+            controls.minDistance = 10;
+            controls.maxDistance = 90;
+            controls.target.set(0, 0, 0);
+            controls.addEventListener('start', () => {
+                isCameraInteracting = true;
+            });
+            controls.addEventListener('end', () => {
+                isCameraInteracting = false;
+            });
+
+            // Lighting from prism_v2 + prism_v3 metallic tuning
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.16);
+            scene.add(ambientLight);
+
+            // 主光源：改用 SpotLight 以获得柔和边缘和圆形光照
+            spotLight = new THREE.SpotLight(0xffffff, config.spotLightIntensity);
+            spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+            spotLight.angle = config.spotLightAngle;
+            spotLight.penumbra = config.spotLightPenumbra; // 关键：让边缘柔和
+            spotLight.decay = 1.5; // 物理衰减
+            spotLight.distance = 100;
+
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 2048; // 提高阴影质量
+            spotLight.shadow.mapSize.height = 2048;
+            spotLight.shadow.bias = -0.0001;
+            scene.add(spotLight);
+
+            fillLight = new THREE.DirectionalLight(0xe3ebf8, config.fillLightIntensity);
+            fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+            scene.add(fillLight);
+
+            rimLight = new THREE.DirectionalLight(0xf7f9ff, 0.6);
+            rimLight.position.set(-12, -6, 10);
+            scene.add(rimLight);
+
+            backLight = new THREE.DirectionalLight(0xdde6f7, 0.35);
+            backLight.position.set(0, -5, -15);
+            scene.add(backLight);
+
+            // 效果3：多灯并列扫光（默认隐藏）
+            rebuildSweepLights();
+            updateSweepLightParams();
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2(-1, -1);
+            colorPresets = loadColorPresets();
+
+            // Pre-create geometries and materials
+            initResources();
+            applyPreset(presetState.theme);
+            createPixelWall();
+            setupSettingsToggle();
+            setupMusicFilePicker();
+            updateMusicHint(musicDriveUi.status);
+            setPanelVisible(true);
+
+            initGUI();
+            applySceneMode();
+
+            renderer.domElement.style.touchAction = 'none';
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            renderer.domElement.addEventListener('pointermove', onPointerMove);
+            renderer.domElement.addEventListener('pointerleave', onPointerCancelOrLeave);
+            window.addEventListener('pointerup', onPointerUp);
+            window.addEventListener('pointercancel', onPointerCancelOrLeave);
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function clearSweepLights() {
+            for (const item of sweepLights) {
+                scene.remove(item.light);
+                scene.remove(item.target);
+            }
+            sweepLights = [];
+        }
+
+        function rebuildSweepLights() {
+            if (!scene) {
+                return;
+            }
+            clearSweepLights();
+            const count = clamp(Math.floor(sweepLightConfig.count), 1, 12);
+            sweepLightConfig.count = count;
+            for (let i = 0; i < count; i++) {
+                const target = new THREE.Object3D();
+                target.position.set(0, 0, 0);
+                scene.add(target);
+
+                const light = new THREE.SpotLight(0xffffff, 0);
+                light.position.set(0, 0, sweepLightConfig.z);
+                light.target = target;
+                light.castShadow = false;
+                light.visible = false;
+                scene.add(light);
+
+                sweepLights.push({ light, target });
+            }
+        }
+
+        function updateSweepLightParams() {
+            const expectedCount = clamp(Math.floor(sweepLightConfig.count), 1, 12);
+            if (sweepLights.length !== expectedCount) {
+                rebuildSweepLights();
+            }
+            if (!sweepLights.length) {
+                return;
+            }
+            for (const item of sweepLights) {
+                item.light.color.set(sweepLightConfig.color);
+                item.light.angle = clamp(sweepLightConfig.angle, 0.25, Math.PI / 2);
+                item.light.penumbra = clamp(sweepLightConfig.penumbra, 0, 1);
+                item.light.distance = Math.max(20, sweepLightConfig.distance);
+                item.light.decay = 1.2;
+            }
+        }
+
+        function scheduleEnvironmentRebuild() {
+            clearTimeout(envRebuildTimer);
+            envRebuildTimer = setTimeout(loadEnvironment, 30);
+        }
+
+        function loadEnvironment() {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+
+            const nextEnvMap = createMetalEnvironment(pmremGenerator);
+            pmremGenerator.dispose();
+
+            if (generatedEnvMap) {
+                generatedEnvMap.dispose();
+            }
+
+            generatedEnvMap = nextEnvMap;
+            scene.environment = generatedEnvMap;
+            refreshMaterialEnvironment();
+        }
+
+        function hexToRgb(hex) {
+            let value = (hex || '#ffffff').replace('#', '').trim();
+            if (value.length === 3) {
+                value = value.split('').map(c => c + c).join('');
+            }
+            const intVal = parseInt(value, 16);
+            return {
+                r: (intVal >> 16) & 255,
+                g: (intVal >> 8) & 255,
+                b: intVal & 255
+            };
+        }
+
+        function toRgba(hex, alpha) {
+            const { r, g, b } = hexToRgb(hex);
+            return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(alpha, 1))})`;
+        }
+
+        function pseudoRandom(seed) {
+            const x = Math.sin(seed * 12.9898) * 43758.5453123;
+            return x - Math.floor(x);
+        }
+
+        function drawHighlightStrip(ctx, strip, canvasHeight) {
+            const width = Math.max(1, strip.width);
+            const alpha = Math.max(0, Math.min(strip.alpha, 1));
+            const x = strip.x;
+
+            const horizontal = ctx.createLinearGradient(x, 0, x + width, 0);
+            horizontal.addColorStop(0.0, toRgba(strip.top, 0.0));
+            horizontal.addColorStop(0.2, toRgba(strip.top, alpha * 0.75));
+            horizontal.addColorStop(0.5, toRgba(strip.bottom, alpha));
+            horizontal.addColorStop(0.8, toRgba(strip.top, alpha * 0.75));
+            horizontal.addColorStop(1.0, toRgba(strip.top, 0.0));
+            ctx.fillStyle = horizontal;
+            ctx.fillRect(x, 0, width, canvasHeight);
+
+            const verticalTint = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+            verticalTint.addColorStop(0.0, toRgba(strip.top, alpha * 0.55));
+            verticalTint.addColorStop(1.0, toRgba(strip.bottom, alpha * 0.55));
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = verticalTint;
+            ctx.fillRect(x, 0, width, canvasHeight);
+            ctx.globalAlpha = 1.0;
+        }
+
+        function drawTintBlock(ctx, block) {
+            if (!block.enabled) {
+                return;
+            }
+
+            const grad = ctx.createLinearGradient(block.x, block.y, block.x + block.width, block.y + block.height);
+            grad.addColorStop(0.0, toRgba(block.start, 0.0));
+            grad.addColorStop(0.2, toRgba(block.start, block.alpha));
+            grad.addColorStop(0.8, toRgba(block.end, block.alpha));
+            grad.addColorStop(1.0, toRgba(block.end, 0.0));
+            ctx.fillStyle = grad;
+            ctx.fillRect(block.x, block.y, block.width, block.height);
+        }
+
+        function createMetalEnvironment(pmremGenerator) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            bg.addColorStop(0.0, envParams.bgTop);
+            bg.addColorStop(0.5, envParams.bgMid);
+            bg.addColorStop(1.0, envParams.bgBottom);
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawHighlightStrip(ctx, {
+                x: envParams.strip1X,
+                width: envParams.strip1Width,
+                alpha: envParams.strip1Alpha,
+                top: envParams.strip1Top,
+                bottom: envParams.strip1Bottom
+            }, canvas.height);
+            drawHighlightStrip(ctx, {
+                x: envParams.strip2X,
+                width: envParams.strip2Width,
+                alpha: envParams.strip2Alpha,
+                top: envParams.strip2Top,
+                bottom: envParams.strip2Bottom
+            }, canvas.height);
+            drawHighlightStrip(ctx, {
+                x: envParams.strip3X,
+                width: envParams.strip3Width,
+                alpha: envParams.strip3Alpha,
+                top: envParams.strip3Top,
+                bottom: envParams.strip3Bottom
+            }, canvas.height);
+
+            drawTintBlock(ctx, {
+                enabled: envParams.block1Enabled,
+                x: envParams.block1X,
+                y: envParams.block1Y,
+                width: envParams.block1Width,
+                height: envParams.block1Height,
+                start: envParams.block1Start,
+                end: envParams.block1End,
+                alpha: envParams.block1Alpha
+            });
+            drawTintBlock(ctx, {
+                enabled: envParams.block2Enabled,
+                x: envParams.block2X,
+                y: envParams.block2Y,
+                width: envParams.block2Width,
+                height: envParams.block2Height,
+                start: envParams.block2Start,
+                end: envParams.block2End,
+                alpha: envParams.block2Alpha
+            });
+
+            for (let i = 0; i < envParams.sparkleCount; i++) {
+                const x = pseudoRandom(i * 7 + 3) * canvas.width;
+                const y = pseudoRandom(i * 11 + 5) * canvas.height;
+                const size = Math.max(1.2, pseudoRandom(i * 13 + 7) * envParams.sparkleSize);
+                const alpha = envParams.sparkleAlpha * (0.45 + pseudoRandom(i * 17 + 9) * 0.55);
+                ctx.globalAlpha = Math.min(alpha, 1.0);
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.encoding = THREE.sRGBEncoding;
+
+            const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+            texture.dispose();
+            return envMap;
+        }
+
+        function refreshMaterialEnvironment() {
+            materials.forEach((material) => {
+                material.needsUpdate = true;
+            });
+            if (innerMaterial) {
+                innerMaterial.needsUpdate = true;
+            }
+        }
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function wrapHue(value) {
+            return ((value % 1) + 1) % 1;
+        }
+
+        function buildFaceColor(index) {
+            const base = new THREE.Color(faceColorParams['color' + index]);
+            const hsl = { h: 0, s: 0, l: 0 };
+            base.getHSL(hsl);
+
+            const hueShift = faceColorParams['hueShift' + index];
+            const satMul = faceColorParams['saturation' + index];
+            const lightMul = faceColorParams['lightness' + index];
+            const separation = faceColorParams.globalSeparation;
+
+            const h = wrapHue(hsl.h + hueShift);
+            const s = clamp(hsl.s * satMul * separation, 0, 1);
+            const lRaw = clamp(hsl.l * lightMul, 0, 1);
+            const l = clamp(0.5 + (lRaw - 0.5) * separation, 0, 1);
+
+            return new THREE.Color().setHSL(h, s, l);
+        }
+
+        function updateFaceMaterials() {
+            if (!materials || materials.length < 3) {
+                return;
+            }
+
+            for (let i = 0; i < 3; i++) {
+                materials[i].color.copy(buildFaceColor(i + 1));
+                materials[i].needsUpdate = true;
+            }
+        }
+
+        function assignKnown(target, values) {
+            if (!values) {
+                return;
+            }
+            Object.keys(values).forEach((key) => {
+                if (Object.prototype.hasOwnProperty.call(target, key)) {
+                    target[key] = values[key];
+                }
+            });
+        }
+
+        function deepClone(value) {
+            return JSON.parse(JSON.stringify(value));
+        }
+
+        function deepMerge(base, override) {
+            const result = deepClone(base);
+            if (!override || typeof override !== 'object') {
+                return result;
+            }
+            Object.keys(override).forEach((key) => {
+                const source = override[key];
+                if (
+                    source &&
+                    typeof source === 'object' &&
+                    !Array.isArray(source) &&
+                    result[key] &&
+                    typeof result[key] === 'object' &&
+                    !Array.isArray(result[key])
+                ) {
+                    result[key] = deepMerge(result[key], source);
+                } else {
+                    result[key] = source;
+                }
+            });
+            return result;
+        }
+
+        function loadColorPresets() {
+            const presets = deepClone(DEFAULT_COLOR_PRESETS);
+            try {
+                const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+                if (!raw) return presets;
+                const stored = JSON.parse(raw);
+                if (!stored || typeof stored !== 'object') return presets;
+                Object.keys(stored).forEach((name) => {
+                    if (presets[name]) {
+                        presets[name] = deepMerge(presets[name], stored[name]);
+                    }
+                });
+                return presets;
+            } catch (error) {
+                console.warn('读取本地模板失败，将使用默认模板', error);
+                return presets;
+            }
+        }
+
+        function persistColorPresets() {
+            try {
+                localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(colorPresets));
+            } catch (error) {
+                console.warn('保存本地模板失败', error);
+            }
+        }
+
+        function snapshotCurrentPreset() {
+            return {
+                materialParams: deepClone(materialParams),
+                faceColorParams: deepClone(faceColorParams),
+                envParams: deepClone(envParams)
+            };
+        }
+
+        function saveCurrentPreset() {
+            const name = presetState.theme;
+            colorPresets[name] = snapshotCurrentPreset();
+            persistColorPresets();
+        }
+
+        function restoreCurrentPresetDefault() {
+            const name = presetState.theme;
+            colorPresets[name] = deepClone(DEFAULT_COLOR_PRESETS[name] || {});
+            persistColorPresets();
+            applyPreset(name);
+        }
+
+        function updateGuiFolderDisplay(folder) {
+            if (!folder) {
+                return;
+            }
+
+            if (Array.isArray(folder.__controllers)) {
+                folder.__controllers.forEach((controller) => controller.updateDisplay());
+            }
+
+            if (folder.__folders) {
+                Object.values(folder.__folders).forEach(updateGuiFolderDisplay);
+            }
+        }
+
+        function applyPreset(themeName) {
+            const fallbackName = Object.keys(colorPresets)[0] || '金属灰翻转金色';
+            const resolvedName = colorPresets[themeName] ? themeName : fallbackName;
+            const preset = colorPresets[resolvedName] || {};
+
+            assignKnown(materialParams, BASE_MATERIAL_PARAMS);
+            assignKnown(faceColorParams, BASE_FACE_COLOR_PARAMS);
+            assignKnown(envParams, BASE_ENV_PARAMS);
+
+            assignKnown(materialParams, preset.materialParams);
+            assignKnown(faceColorParams, preset.faceColorParams);
+            assignKnown(envParams, preset.envParams);
+
+            presetState.theme = resolvedName;
+
+            updateFaceMaterials();
+            updateMetalMaterials();
+
+            if (renderer) {
+                loadEnvironment();
+            }
+
+            if (guiPanel) {
+                updateGuiFolderDisplay(guiPanel);
+            }
+        }
+
+        function setPanelVisible(visible) {
+            panelState.visible = !!visible;
+            const uiEl = document.getElementById('ui');
+            const guiEl = document.getElementById('gui-container');
+            const toggleBtn = document.getElementById('settings-toggle');
+
+            if (uiEl) {
+                uiEl.style.display = panelState.visible ? 'block' : 'none';
+            }
+            if (guiEl) {
+                guiEl.style.display = panelState.visible ? 'block' : 'none';
+            }
+            if (toggleBtn) {
+                toggleBtn.textContent = panelState.visible ? '收起设置' : '打开设置';
+            }
+        }
+
+        function setupSettingsToggle() {
+            const toggleBtn = document.getElementById('settings-toggle');
+            if (!toggleBtn || toggleBtn.dataset.bound === '1') {
+                return;
+            }
+            toggleBtn.dataset.bound = '1';
+            toggleBtn.addEventListener('click', () => {
+                setPanelVisible(!panelState.visible);
+            });
+        }
+
+        function initGUI() {
+            if (typeof dat === 'undefined' || !dat.GUI) {
+                console.warn('dat.GUI 未加载，跳过控制面板初始化');
+                return;
+            }
+
+            const gui = new dat.GUI({ autoPlace: false, width: 330 });
+            guiPanel = gui;
+            const guiContainer = document.getElementById('gui-container');
+            if (guiContainer) {
+                guiContainer.innerHTML = '';
+                guiContainer.appendChild(gui.domElement);
+            } else {
+                document.body.appendChild(gui.domElement);
+            }
+            gui.domElement.style.position = 'static';
+            gui.domElement.style.top = '0';
+            gui.domElement.style.right = '0';
+            gui.domElement.style.zIndex = '9999';
+            gui.domElement.style.pointerEvents = 'auto';
+
+            const modeFolder = gui.addFolder('场景模式');
+            modeFolder.add(sceneModeConfig, 'mode', ['展示模式', '自由模式', '春晚模式']).name('模式').onChange(() => {
+                applySceneMode();
+            });
+            modeFolder.add(sceneModeConfig, 'springAutoResize').name('春晚自动扩墙');
+            modeFolder.add(sceneModeConfig, 'springRows', 12, 80).step(1).name('春晚建议纵向');
+            modeFolder.add(sceneModeConfig, 'springCols', 20, 140).step(1).name('春晚建议横向');
+            modeFolder.add(sceneModeConfig, 'strokePixels', 1, 4).step(1).name('布局缩放').onFinishChange(() => {
+                if (isSpringFestivalMode()) {
+                    applySceneMode();
+                }
+            });
+            modeFolder.add({ applyMode: () => applySceneMode() }, 'applyMode').name('应用模式');
+            modeFolder.open();
+
+            const presetFolder = gui.addFolder('配色模板');
+            const presetOptions = Object.keys(colorPresets);
+            presetFolder.add(presetState, 'theme', presetOptions).name('模板').onChange((value) => {
+                applyPreset(value);
+            });
+            presetFolder.add({ applyNow: () => applyPreset(presetState.theme) }, 'applyNow').name('一键应用');
+            presetFolder.add({ saveCurrent: () => saveCurrentPreset() }, 'saveCurrent').name('保存更改');
+            presetFolder.add({ restoreDefault: () => restoreCurrentPresetDefault() }, 'restoreDefault').name('恢复默认');
+            presetFolder.open();
+
+            const playbackFolder = gui.addFolder('文字播放');
+            playbackFolder.add(displayConfig, 'sequence').name('序列(|分隔)').onFinishChange((value) => {
+                displayConfig.sequence = String(value || '');
+            });
+            playbackFolder.add(displayConfig, 'intervalMs', 200, 5000).step(50).name('切换间隔(ms)');
+            playbackFolder.add(displayConfig, 'onFace', { 面1: 1, 面2: 2 }).name('显示面');
+            playbackFolder.add(displayConfig, 'compactCols', 4, 40).step(1).name('紧凑列宽');
+            playbackFolder.add(displayConfig, 'autoExpand').name('自动扩展行列');
+            playbackFolder.add(displayConfig, 'autoExpandMaxRows', 24, 180).step(1).name('自动扩展最大行');
+            playbackFolder.add(displayConfig, 'autoExpandMaxCols', 40, 360).step(1).name('自动扩展最大列');
+            playbackFolder.add(displayConfig, 'threshold', 20, 240).step(1).name('阈值');
+            playbackFolder.add(displayConfig, 'textScale', 0.35, 1.0).step(0.01).name('字体缩放');
+            playbackFolder.add(displayConfig, 'bold').name('粗体');
+            playbackFolder.add(displayConfig, 'loop').name('循环播放');
+            const cjkFolder = playbackFolder.addFolder('中文紧凑');
+            cjkFolder.add(displayConfig, 'cjkTargetRows', 12, 40).step(1).name('中文目标行高');
+            cjkFolder.add(displayConfig, 'cjkWidthEstimate', 3.5, 9.0).step(0.1).name('中文估算宽');
+            cjkFolder.add(displayConfig, 'cjkGapCells', 0.0, 2.5).step(0.1).name('中文估算字距');
+            cjkFolder.add(displayConfig, 'cjkAdvanceRatio', 0.45, 1.0).step(0.01).name('中文单字宽比');
+            cjkFolder.add(displayConfig, 'cjkTrackingRatio', 0.0, 0.3).step(0.01).name('中文字间距比');
+            cjkFolder.add(displayConfig, 'cjkEdgeThreshold', 60, 220).step(1).name('中文边缘阈值');
+            cjkFolder.add(displayConfig, 'cjkFillRatio', 0.01, 0.5).step(0.01).name('中文像素占比阈值');
+            cjkFolder.add(displayConfig, 'cjkThinPasses', 0, 6).step(1).name('中文骨架化轮次');
+            playbackFolder.add({ previewFirst: () => previewCurrentSequenceText() }, 'previewFirst').name('预览首项');
+            playbackFolder.add({ playNow: () => { startPlayback(); } }, 'playNow').name('一键播放');
+            playbackFolder.add({ stopNow: () => stopPlayback() }, 'stopNow').name('停止播放');
+            guiRefs.playbackFolder = playbackFolder;
+
+            const springWaveFolder = gui.addFolder('春晚行波');
+            springWaveFolder.add(springWaveConfig, 'effect', ['效果1-行波', '效果2-行内波', '效果3-扫光']).name('播放效果');
+            springWaveFolder.add(springWaveConfig, 'direction', ['从上到下', '从下到上']).name('行进方向');
+            springWaveFolder.add(springWaveConfig, 'rowIntervalMs', 0, 800).step(10).name('行波延迟(ms)');
+            springWaveFolder.add(springWaveConfig, 'stagePauseMs', 0, 600).step(10).name('2面后停顿(ms)');
+            springWaveFolder.add(springWaveConfig, 'innerDelayMs', 0, 80).step(1).name('行内延迟(ms)');
+            springWaveFolder.add(springWaveConfig, 'innerDirection', ['从左到右', '从右到左']).name('行内方向');
+            springWaveFolder.add(springWaveConfig, 'damping', 0.04, 0.25).step(0.005).name('阻尼系数');
+
+            const sweepFolder = springWaveFolder.addFolder('效果3 扫光配置');
+            sweepFolder.addColor(sweepLightConfig, 'color').name('光色').onChange(updateSweepLightParams);
+            sweepFolder.add(sweepLightConfig, 'intensity', 0.5, 12).step(0.1).name('光强');
+            sweepFolder.add(sweepLightConfig, 'count', 1, 12).step(1).name('并列灯数').onChange(() => {
+                rebuildSweepLights();
+                updateSweepLightParams();
+            });
+            sweepFolder.add(sweepLightConfig, 'spanScale', 0.6, 2.2).step(0.01).name('横向覆盖');
+            sweepFolder.add(sweepLightConfig, 'edgeAttenuation', 0, 0.8).step(0.01).name('边缘衰减');
+            sweepFolder.add(sweepLightConfig, 'angle', 0.3, Math.PI / 2).step(0.01).name('覆盖角度').onChange(updateSweepLightParams);
+            sweepFolder.add(sweepLightConfig, 'penumbra', 0.2, 1).step(0.01).name('边缘柔和').onChange(updateSweepLightParams);
+            sweepFolder.add(sweepLightConfig, 'distance', 30, 260).step(1).name('照射距离').onChange(updateSweepLightParams);
+            sweepFolder.add(sweepLightConfig, 'z', 8, 60).step(0.5).name('灯距(Z)');
+            sweepFolder.add(sweepLightConfig, 'durationMs', 500, 8000).step(50).name('扫光时长(ms)');
+            sweepFolder.add(sweepLightConfig, 'overscan', 0, 0.8).step(0.01).name('超出边界比例');
+            sweepFolder.add(sweepLightConfig, 'xOffset', -20, 20).step(0.1).name('横向偏移');
+            springWaveFolder.add({ startNow: () => startSpringWave() }, 'startNow').name('开始播放');
+            springWaveFolder.add({ stopNow: () => stopSpringWave() }, 'stopNow').name('停止播放');
+            guiRefs.springWaveFolder = springWaveFolder;
+
+            const musicFolder = gui.addFolder('春晚音乐驱动');
+            musicFolder.add(musicDriveConfig, 'sourceUrl').name('音视频链接');
+            musicFolder.add({ loadLink: () => { loadMusicFromUrl(); } }, 'loadLink').name('加载链接');
+            musicFolder.add({ pickLocal: () => pickLocalMusicFile() }, 'pickLocal').name('上传本地文件');
+            musicFolder.add(musicDriveConfig, 'autoPlayAfterLoad').name('加载后自动启动');
+            musicFolder.add(musicDriveConfig, 'sourceLoop').name('音源循环');
+            musicFolder.add(musicDriveConfig, 'autoTrigger').name('节拍触发特效');
+            musicFolder.add(musicDriveConfig, 'smoothing', 0.2, 0.95).step(0.01).name('能量平滑');
+            musicFolder.add(musicDriveConfig, 'gainBoost', 0.5, 3.0).step(0.05).name('能量增益');
+            musicFolder.add(musicDriveConfig, 'beatThreshold', 0.08, 0.95).step(0.01).name('节拍阈值');
+            musicFolder.add(musicDriveConfig, 'beatFluxThreshold', 0.005, 0.2).step(0.001).name('突增阈值');
+            musicFolder.add(musicDriveConfig, 'beatCooldownMs', 80, 800).step(10).name('节拍冷却(ms)');
+            musicFolder.add(musicDriveConfig, 'triggerIntervalMs', 80, 1200).step(10).name('触发间隔(ms)');
+            musicFolder.add({ startNow: () => { startMusicDrive(); } }, 'startNow').name('开始音乐驱动');
+            musicFolder.add({ stopNow: () => stopMusicDrive({ keepSource: true, pauseAudio: true }) }, 'stopNow').name('停止音乐驱动');
+            musicFolder.add({ clearSource: () => stopMusicDrive({ keepSource: false, pauseAudio: true }) }, 'clearSource').name('清空音源');
+            musicFolder.add(musicDriveUi, 'status').name('解析状态').listen();
+            guiRefs.musicFolder = musicFolder;
+
+            const folder = gui.addFolder('初始角度调整');
+
+            const updateRotations = () => {
+                pixels.forEach(p => {
+                    const face = Number.isFinite(p.userData.faceIndex) ? p.userData.faceIndex : 0;
+                    p.userData.baseRotationX = config.initRotationX;
+                    const targetX = config.initRotationX + face * ((Math.PI * 2) / 3);
+                    p.rotation.set(targetX, config.initRotationY, config.initRotationZ);
+                    p.userData.targetRotationX = targetX;
+                    p.userData.targetFaceIndex = face;
+                    p.userData.currentOn = face !== 0;
+                    p.userData.targetOn = face !== 0;
+                    p.userData.isAnimating = false;
+                });
+            };
+
+            const rebuildGrid = () => {
+                config.gridRows = Math.max(1, Math.floor(config.gridRows));
+                config.gridCols = Math.max(1, Math.floor(config.gridCols));
+                createPixelWall();
+            };
+
+            folder.add(config, 'initRotationX', -Math.PI, Math.PI).step(0.01).name('X 轴角度').onChange(updateRotations);
+            folder.add(config, 'initRotationY', -Math.PI, Math.PI).step(0.01).name('Y 轴角度').onChange(updateRotations);
+            folder.add(config, 'gridRows', 1, 120).step(1).name('纵向像素').onFinishChange(rebuildGrid);
+            folder.add(config, 'gridCols', 1, 240).step(1).name('横向像素').onFinishChange(rebuildGrid);
+            folder.add(config, 'gap', 0.0, 0.5).step(0.001).name('行列间距').onChange(updatePositions);
+            folder.open();
+
+            // 相机设置面板
+            const camFolder = gui.addFolder('相机视角设置');
+            const updateCamera = () => {
+                camera.position.set(config.camX, config.camY, config.camZ);
+                controls.target.set(0, 0, 0);
+
+                camera.fov = config.camFov;
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                controls.update();
+            };
+            camFolder.add(config, 'camX', -50, 50).name('位置 X').onChange(updateCamera);
+            camFolder.add(config, 'camY', -50, 50).name('位置 Y').onChange(updateCamera);
+            camFolder.add(config, 'camZ', 0, 100).name('位置 Z').onChange(updateCamera);
+            camFolder.add(config, 'camFov', 18, 65).name('透视强度(FOV)').onChange(updateCamera);
+            camFolder.open();
+
+            // 灯光设置面板
+            const lightFolder = gui.addFolder('光源设置');
+            const updateLights = () => {
+                spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+                spotLight.intensity = config.spotLightIntensity;
+                spotLight.angle = config.spotLightAngle;
+                spotLight.penumbra = config.spotLightPenumbra;
+
+                fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+                fillLight.intensity = config.fillLightIntensity;
+                updateSweepLightParams();
+            };
+
+            // 主光源 (SpotLight)
+            lightFolder.add(config, 'spotLightX', -50, 50).name('主光 X').onChange(updateLights);
+            lightFolder.add(config, 'spotLightY', -50, 50).name('主光 Y').onChange(updateLights);
+            lightFolder.add(config, 'spotLightZ', 0, 100).name('主光 Z').onChange(updateLights);
+            lightFolder.add(config, 'spotLightIntensity', 0, 4).name('主光强度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightAngle', 0, Math.PI / 2).name('光照角度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightPenumbra', 0, 1).name('边缘柔化').onChange(updateLights);
+
+            // 补光 (Directional)
+            lightFolder.add(config, 'fillLightX', -20, 20).name('补光 X').onChange(updateLights);
+            lightFolder.add(config, 'fillLightY', -20, 20).name('补光 Y').onChange(updateLights);
+            lightFolder.add(config, 'fillLightZ', -20, 20).name('补光 Z').onChange(updateLights);
+            lightFolder.add(config, 'fillLightIntensity', 0, 2).name('补光强度').onChange(updateLights);
+
+            const faceFolder = gui.addFolder('三面颜色');
+            faceFolder.add(faceColorParams, 'globalSeparation', 0.8, 1.8).step(0.01).name('差异增强').onChange(updateFaceMaterials);
+
+            const addFaceColorControls = (parentFolder, index, label) => {
+                const section = parentFolder.addFolder(label);
+                section.addColor(faceColorParams, 'color' + index).name('基色').onChange(updateFaceMaterials);
+                section.add(faceColorParams, 'hueShift' + index, -0.2, 0.2).step(0.001).name('色相偏移').onChange(updateFaceMaterials);
+                section.add(faceColorParams, 'saturation' + index, 0, 2).step(0.01).name('饱和度').onChange(updateFaceMaterials);
+                section.add(faceColorParams, 'lightness' + index, 0.5, 1.5).step(0.01).name('明度').onChange(updateFaceMaterials);
+            };
+
+            addFaceColorControls(faceFolder, 1, '面 1');
+            addFaceColorControls(faceFolder, 2, '面 2');
+            addFaceColorControls(faceFolder, 3, '面 3');
+
+            const metalFolder = gui.addFolder('金属材质');
+            metalFolder.add(materialParams, 'roughness', 0.01, 0.2).name('粗糙度').onChange(updateMetalMaterials);
+            metalFolder.add(materialParams, 'metalness', 0.7, 1).name('金属度').onChange(updateMetalMaterials);
+            metalFolder.add(materialParams, 'clearcoat', 0.2, 1).name('清漆层').onChange(updateMetalMaterials);
+            metalFolder.add(materialParams, 'clearcoatRoughness', 0.005, 0.12).name('清漆粗糙').onChange(updateMetalMaterials);
+            metalFolder.add(materialParams, 'envMapIntensity', 1.2, 6).name('反射强度').onChange(updateMetalMaterials);
+
+            const envFolder = gui.addFolder('反射环境');
+            const bgFolder = envFolder.addFolder('背景渐变');
+            bgFolder.addColor(envParams, 'bgTop').name('顶部色').onChange(scheduleEnvironmentRebuild);
+            bgFolder.addColor(envParams, 'bgMid').name('中段色').onChange(scheduleEnvironmentRebuild);
+            bgFolder.addColor(envParams, 'bgBottom').name('底部色').onChange(scheduleEnvironmentRebuild);
+
+            const strip1Folder = envFolder.addFolder('高光条 1');
+            strip1Folder.add(envParams, 'strip1X', 0, 1024).step(1).name('X').onChange(scheduleEnvironmentRebuild);
+            strip1Folder.add(envParams, 'strip1Width', 10, 320).step(1).name('宽度').onChange(scheduleEnvironmentRebuild);
+            strip1Folder.add(envParams, 'strip1Alpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+            strip1Folder.addColor(envParams, 'strip1Top').name('顶部色').onChange(scheduleEnvironmentRebuild);
+            strip1Folder.addColor(envParams, 'strip1Bottom').name('底部色').onChange(scheduleEnvironmentRebuild);
+
+            const strip2Folder = envFolder.addFolder('高光条 2');
+            strip2Folder.add(envParams, 'strip2X', 0, 1024).step(1).name('X').onChange(scheduleEnvironmentRebuild);
+            strip2Folder.add(envParams, 'strip2Width', 10, 320).step(1).name('宽度').onChange(scheduleEnvironmentRebuild);
+            strip2Folder.add(envParams, 'strip2Alpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+            strip2Folder.addColor(envParams, 'strip2Top').name('顶部色').onChange(scheduleEnvironmentRebuild);
+            strip2Folder.addColor(envParams, 'strip2Bottom').name('底部色').onChange(scheduleEnvironmentRebuild);
+
+            const strip3Folder = envFolder.addFolder('高光条 3');
+            strip3Folder.add(envParams, 'strip3X', 0, 1024).step(1).name('X').onChange(scheduleEnvironmentRebuild);
+            strip3Folder.add(envParams, 'strip3Width', 10, 320).step(1).name('宽度').onChange(scheduleEnvironmentRebuild);
+            strip3Folder.add(envParams, 'strip3Alpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+            strip3Folder.addColor(envParams, 'strip3Top').name('顶部色').onChange(scheduleEnvironmentRebuild);
+            strip3Folder.addColor(envParams, 'strip3Bottom').name('底部色').onChange(scheduleEnvironmentRebuild);
+
+            const block1Folder = envFolder.addFolder('色块 1 (靛蓝)');
+            block1Folder.add(envParams, 'block1Enabled').name('启用').onChange(scheduleEnvironmentRebuild);
+            block1Folder.add(envParams, 'block1X', 0, 1024).step(1).name('X').onChange(scheduleEnvironmentRebuild);
+            block1Folder.add(envParams, 'block1Y', 0, 512).step(1).name('Y').onChange(scheduleEnvironmentRebuild);
+            block1Folder.add(envParams, 'block1Width', 10, 600).step(1).name('宽度').onChange(scheduleEnvironmentRebuild);
+            block1Folder.add(envParams, 'block1Height', 10, 250).step(1).name('高度').onChange(scheduleEnvironmentRebuild);
+            block1Folder.add(envParams, 'block1Alpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+            block1Folder.addColor(envParams, 'block1Start').name('渐变起色').onChange(scheduleEnvironmentRebuild);
+            block1Folder.addColor(envParams, 'block1End').name('渐变终色').onChange(scheduleEnvironmentRebuild);
+
+            const block2Folder = envFolder.addFolder('色块 2');
+            block2Folder.add(envParams, 'block2Enabled').name('启用').onChange(scheduleEnvironmentRebuild);
+            block2Folder.add(envParams, 'block2X', 0, 1024).step(1).name('X').onChange(scheduleEnvironmentRebuild);
+            block2Folder.add(envParams, 'block2Y', 0, 512).step(1).name('Y').onChange(scheduleEnvironmentRebuild);
+            block2Folder.add(envParams, 'block2Width', 10, 600).step(1).name('宽度').onChange(scheduleEnvironmentRebuild);
+            block2Folder.add(envParams, 'block2Height', 10, 250).step(1).name('高度').onChange(scheduleEnvironmentRebuild);
+            block2Folder.add(envParams, 'block2Alpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+            block2Folder.addColor(envParams, 'block2Start').name('渐变起色').onChange(scheduleEnvironmentRebuild);
+            block2Folder.addColor(envParams, 'block2End').name('渐变终色').onChange(scheduleEnvironmentRebuild);
+
+            const sparkleFolder = envFolder.addFolder('亮点');
+            sparkleFolder.add(envParams, 'sparkleCount', 0, 50).step(1).name('数量').onChange(scheduleEnvironmentRebuild);
+            sparkleFolder.add(envParams, 'sparkleSize', 1, 12).step(0.1).name('尺寸').onChange(scheduleEnvironmentRebuild);
+            sparkleFolder.add(envParams, 'sparkleAlpha', 0, 1).step(0.01).name('透明度').onChange(scheduleEnvironmentRebuild);
+        }
+
+        function updateMetalMaterials() {
+            materials.forEach((material) => {
+                material.roughness = materialParams.roughness;
+                material.metalness = materialParams.metalness;
+                material.clearcoat = materialParams.clearcoat;
+                material.clearcoatRoughness = materialParams.clearcoatRoughness;
+                material.envMapIntensity = materialParams.envMapIntensity;
+                material.needsUpdate = true;
+            });
+
+            if (!innerMaterial) {
+                return;
+            }
+
+            innerMaterial.roughness = Math.min(materialParams.roughness + 0.08, 0.3);
+            innerMaterial.metalness = Math.max(materialParams.metalness - 0.25, 0.35);
+            innerMaterial.clearcoat = Math.max(materialParams.clearcoat - 0.35, 0.0);
+            innerMaterial.clearcoatRoughness = Math.min(materialParams.clearcoatRoughness + 0.03, 0.2);
+            innerMaterial.envMapIntensity = Math.max(materialParams.envMapIntensity - 0.8, 0.8);
+            innerMaterial.needsUpdate = true;
+        }
+
+        function clearPixelWall() {
+            pixels.forEach((pixel) => {
+                scene.remove(pixel);
+            });
+            edgeRimMeshes.forEach((mesh) => {
+                scene.remove(mesh);
+                if (mesh.geometry) {
+                    mesh.geometry.dispose();
+                }
+                if (mesh.material && typeof mesh.material.dispose === 'function') {
+                    mesh.material.dispose();
+                }
+            });
+            edgeRimMeshes.length = 0;
+            pixels.length = 0;
+            pixelLookup.clear();
+            activeMask = [];
+            activeWallBounds = null;
+        }
+
+        function isMaskCellOn(mask, row, col) {
+            if (row < 0 || col < 0 || row >= mask.length || col >= mask[0].length) {
+                return false;
+            }
+            return mask[row][col] === 1;
+        }
+
+        function isBoundaryCell(mask, row, col) {
+            if (!isMaskCellOn(mask, row, col)) {
+                return false;
+            }
+            return (
+                !isMaskCellOn(mask, row - 1, col) ||
+                !isMaskCellOn(mask, row + 1, col) ||
+                !isMaskCellOn(mask, row, col - 1) ||
+                !isMaskCellOn(mask, row, col + 1)
+            );
+        }
+
+        function createEdgeRimForSpringMask(mask, rows, cols, gap, prototypePrism) {
+            if (!isSpringFestivalMode()) {
+                return;
+            }
+
+            const pitch = UNIT_SIZE + gap;
+            const half = UNIT_SIZE / 2;
+            const totalWidth = cols * pitch;
+            const totalHeight = rows * pitch;
+            const rimDepthLayers = 2; // 按需求固定为 2 像素深度
+            const rimOutOffset = half;
+
+            const spawnRimPixel = (x, y, z, rx, ry, rz) => {
+                const rimPixel = prototypePrism.clone();
+                rimPixel.position.set(x, y, z);
+                rimPixel.rotation.set(rx, ry, rz);
+                rimPixel.userData = {
+                    isRim: true,
+                    isAnimating: false
+                };
+
+                // 包边不参与鼠标命中与翻转
+                rimPixel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.raycast = () => null;
+                        child.userData.parentGroup = null;
+                    }
+                });
+
+                scene.add(rimPixel);
+                edgeRimMeshes.push(rimPixel);
+            };
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (!isBoundaryCell(mask, row, col)) {
+                        continue;
+                    }
+
+                    const worldRow = rows - 1 - row;
+                    const cellX = (col * pitch) - (totalWidth / 2) + half;
+                    const cellY = (worldRow * pitch) - (totalHeight / 2) + half;
+                    const hasTop = isMaskCellOn(mask, row - 1, col);
+                    const hasBottom = isMaskCellOn(mask, row + 1, col);
+                    const hasLeft = isMaskCellOn(mask, row, col - 1);
+                    const hasRight = isMaskCellOn(mask, row, col + 1);
+                    const sideBaseX = config.initRotationX - Math.PI / 2;
+
+                    for (let layer = 1; layer <= rimDepthLayers; layer++) {
+                        const z = -layer * pitch;
+
+                        // 左右边：以上边已验证姿态为基准，绕 Z 轴 ±90°
+                        if (!hasLeft) {
+                            spawnRimPixel(
+                                cellX - rimOutOffset,
+                                cellY,
+                                z,
+                                sideBaseX,
+                                config.initRotationY,
+                                config.initRotationZ + Math.PI / 2
+                            );
+                        }
+                        if (!hasRight) {
+                            spawnRimPixel(
+                                cellX + rimOutOffset,
+                                cellY,
+                                z,
+                                sideBaseX,
+                                config.initRotationY,
+                                config.initRotationZ - Math.PI / 2
+                            );
+                        }
+
+                        // 上下边：让主可见面朝向上下侧面（绕 X 轴旋转）
+                        if (!hasTop) {
+                            spawnRimPixel(
+                                cellX,
+                                cellY + rimOutOffset,
+                                z,
+                                config.initRotationX - Math.PI / 2,
+                                config.initRotationY,
+                                config.initRotationZ
+                            );
+                        }
+                        if (!hasBottom) {
+                            spawnRimPixel(
+                                cellX,
+                                cellY - rimOutOffset,
+                                z,
+                                config.initRotationX + Math.PI / 2,
+                                config.initRotationY,
+                                config.initRotationZ
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        function createFilledMask(rows, cols) {
+            return Array.from({ length: rows }, () => Array(cols).fill(1));
+        }
+
+        function createEmptyMask(rows, cols) {
+            return Array.from({ length: rows }, () => Array(cols).fill(0));
+        }
+
+        function setMaskRect(mask, top, left, height, width, value = true) {
+            const rows = mask.length;
+            const cols = rows > 0 ? mask[0].length : 0;
+            const rowStart = Math.max(0, top);
+            const rowEnd = Math.min(rows, top + height);
+            const colStart = Math.max(0, left);
+            const colEnd = Math.min(cols, left + width);
+
+            for (let row = rowStart; row < rowEnd; row++) {
+                for (let col = colStart; col < colEnd; col++) {
+                    mask[row][col] = value ? 1 : 0;
+                }
+            }
+        }
+
+        function getSpringModuleBounds() {
+            return {
+                cols: SPRING_GALA_LAYOUT_COLS,
+                rows: SPRING_GALA_LAYOUT_ROWS
+            };
+        }
+
+        function countMaskCells(mask) {
+            let count = 0;
+            for (let row = 0; row < mask.length; row++) {
+                for (let col = 0; col < mask[row].length; col++) {
+                    if (mask[row][col] === 1) {
+                        count += 1;
+                    }
+                }
+            }
+            return count;
+        }
+
+        function masksEqual(a, b) {
+            if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+                return false;
+            }
+            for (let row = 0; row < a.length; row++) {
+                const rowA = a[row];
+                const rowB = b[row];
+                if (!Array.isArray(rowA) || !Array.isArray(rowB) || rowA.length !== rowB.length) {
+                    return false;
+                }
+                for (let col = 0; col < rowA.length; col++) {
+                    if (rowA[col] !== rowB[col]) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function buildSpringFestivalMask(rows, cols) {
+            const mask = createEmptyMask(rows, cols);
+            const moduleSize = Math.max(1, Math.min(sceneModeConfig.strokePixels, Math.floor(Math.min(rows, cols) / 4)));
+            const patternCols = SPRING_GALA_LAYOUT_COLS * moduleSize;
+            const patternRows = SPRING_GALA_LAYOUT_ROWS * moduleSize;
+            const startCol = Math.floor((cols - patternCols) / 2);
+            const startRow = Math.floor((rows - patternRows) / 2);
+
+            SPRING_GALA_ROW_SEGMENTS.forEach(([moduleRow, segments]) => {
+                const top = startRow + moduleRow * moduleSize;
+                segments.forEach(([startModuleCol, endModuleCol]) => {
+                    const left = startCol + startModuleCol * moduleSize;
+                    const width = (endModuleCol - startModuleCol + 1) * moduleSize;
+                    setMaskRect(mask, top, left, moduleSize, width, true);
+                });
+            });
+
+            const active = countMaskCells(mask);
+            if (active < Math.max(12, Math.floor(rows * cols * 0.08))) {
+                return createFilledMask(rows, cols);
+            }
+            return mask;
+        }
+
+        function buildActiveMask(rows, cols) {
+            if (!isSpringFestivalMode()) {
+                return createFilledMask(rows, cols);
+            }
+            return buildSpringFestivalMask(rows, cols);
+        }
+
+        function computeActiveWallBounds(mask, rows, cols, gap) {
+            const pitch = UNIT_SIZE + gap;
+            const half = UNIT_SIZE / 2;
+            const totalWidth = cols * pitch;
+            const totalHeight = rows * pitch;
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (!mask[row] || mask[row][col] !== 1) {
+                        continue;
+                    }
+                    const worldRow = rows - 1 - row;
+                    const x = (col * pitch) - (totalWidth / 2) + half;
+                    const y = (worldRow * pitch) - (totalHeight / 2) + half;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+            if (!Number.isFinite(minX)) {
+                return {
+                    minX: -1,
+                    maxX: 1,
+                    minY: -1,
+                    maxY: 1,
+                    centerX: 0,
+                    centerY: 0,
+                    width: 2,
+                    height: 2
+                };
+            }
+
+            return {
+                minX,
+                maxX,
+                minY,
+                maxY,
+                centerX: (minX + maxX) * 0.5,
+                centerY: (minY + maxY) * 0.5,
+                width: Math.max(UNIT_SIZE, maxX - minX + UNIT_SIZE),
+                height: Math.max(UNIT_SIZE, maxY - minY + UNIT_SIZE)
+            };
+        }
+
+        function createPixelWall() {
+            clearPixelWall();
+
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const gap = config.gap;
+            const prototypePrism = createPrismPrototype();
+            activeMask = buildActiveMask(rows, cols);
+            activeWallBounds = computeActiveWallBounds(activeMask, rows, cols, gap);
+
+            const totalWidth = cols * (UNIT_SIZE + gap);
+            const totalHeight = rows * (UNIT_SIZE + gap);
+
+            for (let logicalRow = 0; logicalRow < rows; logicalRow++) {
+                for (let col = 0; col < cols; col++) {
+                    if (!activeMask[logicalRow][col]) {
+                        continue;
+                    }
+                    const prism = prototypePrism.clone();
+                    const worldRow = rows - 1 - logicalRow;
+
+                    prism.position.x = (col * (UNIT_SIZE + gap)) - (totalWidth / 2) + (UNIT_SIZE / 2);
+                    prism.position.y = (worldRow * (UNIT_SIZE + gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
+                    prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
+                    prism.userData = {
+                        baseRotationX: config.initRotationX,
+                        faceIndex: 0,
+                        targetFaceIndex: 0,
+                        currentOn: false,
+                        targetOn: false,
+                        targetRotationX: config.initRotationX,
+                        isAnimating: false,
+                        gridRow: logicalRow,
+                        gridCol: col
+                    };
+
+                    prism.traverse((child) => {
+                        if (child.isMesh) {
+                            child.userData.parentGroup = prism;
+                        }
+                    });
+
+                    scene.add(prism);
+                    pixels.push(prism);
+                    pixelLookup.set(gridKey(logicalRow, col), prism);
+                }
+            }
+
+            createEdgeRimForSpringMask(activeMask, rows, cols, gap, prototypePrism);
+
+            if (playbackState.lastText && isDisplayMode()) {
+                const grid = renderTextToGrid(playbackState.lastText);
+                applyTextGrid(grid, true);
+            }
+        }
+
+        function updatePositions() {
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const gap = config.gap;
+            if (isSpringFestivalMode()) {
+                createPixelWall();
+                return;
+            }
+            const expectedMask = buildActiveMask(rows, cols);
+            const expectedCount = countMaskCells(expectedMask);
+            const knownCols = activeMask.length > 0 ? activeMask[0].length : 0;
+            const maskSizeChanged = activeMask.length !== rows || knownCols !== cols;
+            const maskShapeChanged = !masksEqual(activeMask, expectedMask);
+            if (maskSizeChanged || maskShapeChanged || pixels.length !== expectedCount) {
+                createPixelWall();
+                return;
+            }
+
+            const totalWidth = cols * (UNIT_SIZE + gap);
+            const totalHeight = rows * (UNIT_SIZE + gap);
+
+            pixels.forEach((prism) => {
+                const logicalRow = Number.isFinite(prism.userData.gridRow) ? prism.userData.gridRow : 0;
+                const col = Number.isFinite(prism.userData.gridCol) ? prism.userData.gridCol : 0;
+                const worldRow = rows - 1 - logicalRow;
+                prism.position.x = (col * (UNIT_SIZE + gap)) - (totalWidth / 2) + (UNIT_SIZE / 2);
+                prism.position.y = (worldRow * (UNIT_SIZE + gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
+            });
+        }
+
+        function parseDisplaySequence(raw) {
+            return String(raw || '')
+                .split(/[\n|,;]+/)
+                .map(item => item.trim())
+                .filter(Boolean);
+        }
+
+        function normalizeDisplayText(text) {
+            return String(text || '').trim();
+        }
+
+        function containsOnlyPixelFontChars(text) {
+            const upper = normalizeDisplayText(text).toUpperCase();
+            if (!upper) return true;
+            for (const ch of upper) {
+                if (!PIXEL_FONT[ch]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function isCjkChar(ch) {
+            return /[\u3400-\u9FFF]/.test(ch);
+        }
+
+        function containsCjkChars(text) {
+            return /[\u3400-\u9FFF]/.test(normalizeDisplayText(text));
+        }
+
+        function buildPixelFontBitmap(text) {
+            const upper = normalizeDisplayText(text).toUpperCase() || ' ';
+            const glyphs = [];
+            let width = 0;
+
+            for (const ch of upper) {
+                const glyph = PIXEL_FONT[ch] || PIXEL_FONT[' '];
+                const glyphWidth = glyph[0].length;
+                glyphs.push({ glyph, width: glyphWidth });
+                width += glyphWidth;
+            }
+            if (glyphs.length > 1) {
+                width += FONT_SPACING * (glyphs.length - 1);
+            }
+
+            const bitmap = Array.from({ length: FONT_HEIGHT }, () => Array(width).fill(0));
+            let offsetX = 0;
+            glyphs.forEach((item, idx) => {
+                for (let y = 0; y < FONT_HEIGHT; y++) {
+                    const row = item.glyph[y] || '00000';
+                    for (let x = 0; x < item.width; x++) {
+                        if (row[x] === '1') {
+                            bitmap[y][offsetX + x] = 1;
+                        }
+                    }
+                }
+                offsetX += item.width + (idx < glyphs.length - 1 ? FONT_SPACING : 0);
+            });
+
+            return { bitmap, width, height: FONT_HEIGHT };
+        }
+
+        function scaleBitmapToGrid(bitmap, sourceWidth, sourceHeight, targetCols, targetRows, minFillRatio = 0) {
+            const scaleFactor = Math.max(sourceWidth / targetCols, sourceHeight / targetRows, 1);
+            const targetW = Math.min(targetCols, Math.max(1, Math.floor(sourceWidth / scaleFactor)));
+            const targetH = Math.min(targetRows, Math.max(1, Math.floor(sourceHeight / scaleFactor)));
+            const fillRatio = clamp(minFillRatio, 0, 0.95);
+
+            const scaled = Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
+            const startCol = Math.floor((targetCols - targetW) / 2);
+            const startRow = Math.floor((targetRows - targetH) / 2);
+
+            for (let ty = 0; ty < targetH; ty++) {
+                const y0 = Math.floor(ty * scaleFactor);
+                const y1 = Math.min(sourceHeight, Math.floor((ty + 1) * scaleFactor));
+
+                for (let tx = 0; tx < targetW; tx++) {
+                    const x0 = Math.floor(tx * scaleFactor);
+                    const x1 = Math.min(sourceWidth, Math.floor((tx + 1) * scaleFactor));
+
+                    let onCount = 0;
+                    let totalCount = 0;
+                    for (let y = y0; y < y1; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            totalCount += 1;
+                            if (bitmap[y][x]) {
+                                onCount += 1;
+                            }
+                        }
+                    }
+
+                    if (onCount > 0 && (onCount / Math.max(1, totalCount)) >= fillRatio) {
+                        scaled[startRow + ty][startCol + tx] = 1;
+                    }
+                }
+            }
+
+            return scaled;
+        }
+
+        function thinBinaryGridZhangSuen(sourceGrid, maxPasses = 20) {
+            const rows = sourceGrid.length;
+            const cols = rows > 0 ? sourceGrid[0].length : 0;
+            if (rows === 0 || cols === 0 || maxPasses <= 0) {
+                return sourceGrid;
+            }
+
+            const grid = sourceGrid.map((row) => row.slice());
+            const on = (r, c) => (
+                r >= 0 && r < rows && c >= 0 && c < cols && grid[r][c] ? 1 : 0
+            );
+
+            let pass = 0;
+            let changed = false;
+
+            do {
+                changed = false;
+                let toDelete = [];
+
+                for (let r = 1; r < rows - 1; r++) {
+                    for (let c = 1; c < cols - 1; c++) {
+                        if (!grid[r][c]) continue;
+
+                        const p2 = on(r - 1, c);
+                        const p3 = on(r - 1, c + 1);
+                        const p4 = on(r, c + 1);
+                        const p5 = on(r + 1, c + 1);
+                        const p6 = on(r + 1, c);
+                        const p7 = on(r + 1, c - 1);
+                        const p8 = on(r, c - 1);
+                        const p9 = on(r - 1, c - 1);
+                        const neighbors = [p2, p3, p4, p5, p6, p7, p8, p9];
+                        const n = neighbors.reduce((sum, v) => sum + v, 0);
+                        let s = 0;
+                        for (let i = 0; i < 8; i++) {
+                            if (neighbors[i] === 0 && neighbors[(i + 1) % 8] === 1) {
+                                s += 1;
+                            }
+                        }
+
+                        if (
+                            n >= 2 && n <= 6 &&
+                            s === 1 &&
+                            (p2 * p4 * p6 === 0) &&
+                            (p4 * p6 * p8 === 0)
+                        ) {
+                            toDelete.push([r, c]);
+                        }
+                    }
+                }
+
+                if (toDelete.length > 0) {
+                    changed = true;
+                    for (const [r, c] of toDelete) {
+                        grid[r][c] = 0;
+                    }
+                }
+
+                toDelete = [];
+                for (let r = 1; r < rows - 1; r++) {
+                    for (let c = 1; c < cols - 1; c++) {
+                        if (!grid[r][c]) continue;
+
+                        const p2 = on(r - 1, c);
+                        const p3 = on(r - 1, c + 1);
+                        const p4 = on(r, c + 1);
+                        const p5 = on(r + 1, c + 1);
+                        const p6 = on(r + 1, c);
+                        const p7 = on(r + 1, c - 1);
+                        const p8 = on(r, c - 1);
+                        const p9 = on(r - 1, c - 1);
+                        const neighbors = [p2, p3, p4, p5, p6, p7, p8, p9];
+                        const n = neighbors.reduce((sum, v) => sum + v, 0);
+                        let s = 0;
+                        for (let i = 0; i < 8; i++) {
+                            if (neighbors[i] === 0 && neighbors[(i + 1) % 8] === 1) {
+                                s += 1;
+                            }
+                        }
+
+                        if (
+                            n >= 2 && n <= 6 &&
+                            s === 1 &&
+                            (p2 * p4 * p8 === 0) &&
+                            (p2 * p6 * p8 === 0)
+                        ) {
+                            toDelete.push([r, c]);
+                        }
+                    }
+                }
+
+                if (toDelete.length > 0) {
+                    changed = true;
+                    for (const [r, c] of toDelete) {
+                        grid[r][c] = 0;
+                    }
+                }
+
+                pass += 1;
+            } while (changed && pass < maxPasses);
+
+            return grid;
+        }
+
+        function getCjkTargetRows() {
+            const configured = Math.floor(displayConfig.cjkTargetRows ?? 20);
+            return clamp(Math.max(CJK_BASE_CELL_SIZE, configured), 12, 40);
+        }
+
+        function estimateContentWidthCells(text) {
+            const content = normalizeDisplayText(text);
+            if (!content) return 1;
+            if (containsOnlyPixelFontChars(content)) {
+                return buildPixelFontBitmap(content).width;
+            }
+            if (containsCjkChars(content)) {
+                return buildCjkTextBitmap(content, getCjkTargetRows()).width;
+            }
+            const latinCount = Array.from(content).length;
+            return Math.ceil(latinCount * 3.4);
+        }
+
+        function estimateContentHeightCells(text) {
+            const content = normalizeDisplayText(text);
+            if (!content) return 1;
+            if (containsOnlyPixelFontChars(content)) {
+                return FONT_HEIGHT;
+            }
+            if (containsCjkChars(content)) {
+                return getCjkTargetRows();
+            }
+            return Math.max(8, Math.ceil(10 * clamp(displayConfig.textScale, 0.35, 1.0)));
+        }
+
+        function ensureDisplayGridCapacity(text) {
+            if (!isDisplayMode() || !displayConfig.autoExpand) {
+                return false;
+            }
+            const content = normalizeDisplayText(text);
+            if (!content) {
+                return false;
+            }
+
+            const currentRows = Math.max(1, Math.floor(config.gridRows));
+            const currentCols = Math.max(1, Math.floor(config.gridCols));
+            const maxRows = clamp(Math.floor(displayConfig.autoExpandMaxRows ?? 120), 12, 240);
+            const maxCols = clamp(Math.floor(displayConfig.autoExpandMaxCols ?? 240), 20, 420);
+            const hasCjk = containsCjkChars(content);
+            const neededRows = Math.min(maxRows, estimateContentHeightCells(content) + (hasCjk ? 3 : 2));
+            const neededCols = Math.min(maxCols, estimateContentWidthCells(content) + (hasCjk ? 4 : 2));
+
+            let nextRows = currentRows;
+            let nextCols = currentCols;
+            if (neededRows > currentRows) {
+                nextRows = neededRows;
+            }
+            if (neededCols > currentCols) {
+                nextCols = neededCols;
+            }
+
+            if (nextRows === currentRows && nextCols === currentCols) {
+                return false;
+            }
+
+            config.gridRows = nextRows;
+            config.gridCols = nextCols;
+            createPixelWall();
+            return true;
+        }
+
+        function decideActiveColumns(text, totalCols) {
+            const compactCols = clamp(Math.floor(displayConfig.compactCols), 4, Math.max(4, totalCols));
+            if (!displayConfig.autoExpand) {
+                return compactCols;
+            }
+            const neededCols = estimateContentWidthCells(text);
+            return neededCols > compactCols ? totalCols : compactCols;
+        }
+
+        function waitMs(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function updateMusicHint(message) {
+            const text = String(message || '音乐驱动：未加载音源');
+            musicDriveUi.status = text;
+            const hint = document.getElementById('music-hint');
+            if (hint) {
+                hint.textContent = text;
+            }
+        }
+
+        function describeMediaError(mediaError) {
+            if (!mediaError) {
+                return '未知错误';
+            }
+            if (mediaError.code === 1) {
+                return '加载被中止';
+            }
+            if (mediaError.code === 2) {
+                return '网络错误';
+            }
+            if (mediaError.code === 3) {
+                return '媒体解码失败';
+            }
+            if (mediaError.code === 4) {
+                return '链接或格式不受支持';
+            }
+            return '媒体加载失败';
+        }
+
+        function revokeMusicObjectUrl() {
+            if (musicDriveState.objectUrl) {
+                URL.revokeObjectURL(musicDriveState.objectUrl);
+                musicDriveState.objectUrl = '';
+            }
+        }
+
+        function ensureMusicAudioElement() {
+            if (musicDriveState.audioEl) {
+                return musicDriveState.audioEl;
+            }
+            const audio = document.createElement('audio');
+            audio.preload = 'auto';
+            audio.crossOrigin = 'anonymous';
+            audio.playsInline = true;
+            audio.loop = !!musicDriveConfig.sourceLoop;
+            audio.addEventListener('error', () => {
+                stopMusicDrive({ keepSource: true, pauseAudio: true, silentStatus: true });
+                updateMusicHint(`音乐驱动：${describeMediaError(audio.error)}`);
+            });
+            musicDriveState.audioEl = audio;
+            return audio;
+        }
+
+        async function ensureMusicAnalyser() {
+            const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextCtor) {
+                throw new Error('当前浏览器不支持 Web Audio API');
+            }
+
+            const audio = ensureMusicAudioElement();
+            if (!musicDriveState.audioContext) {
+                musicDriveState.audioContext = new AudioContextCtor();
+            }
+
+            const ctx = musicDriveState.audioContext;
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+            }
+
+            if (!musicDriveState.sourceNode) {
+                musicDriveState.sourceNode = ctx.createMediaElementSource(audio);
+            }
+
+            if (!musicDriveState.analyser) {
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 1024;
+                analyser.smoothingTimeConstant = 0.62;
+                musicDriveState.analyser = analyser;
+                musicDriveState.timeData = new Uint8Array(analyser.fftSize);
+                musicDriveState.freqData = new Uint8Array(analyser.frequencyBinCount);
+            }
+
+            if (!musicDriveState.graphConnected) {
+                musicDriveState.sourceNode.connect(musicDriveState.analyser);
+                musicDriveState.analyser.connect(ctx.destination);
+                musicDriveState.graphConnected = true;
+            }
+        }
+
+        function pickLocalMusicFile() {
+            const input = document.getElementById('music-file-input');
+            if (!input) {
+                updateMusicHint('音乐驱动：未找到文件选择器');
+                return;
+            }
+            input.click();
+        }
+
+        function isPageVideoLink(url) {
+            return /(youtube\.com|youtu\.be|bilibili\.com|douyin\.com|kuaishou\.com)/i.test(url);
+        }
+
+        async function loadMusicFromUrl() {
+            const url = String(musicDriveConfig.sourceUrl || '').trim();
+            if (!url) {
+                updateMusicHint('音乐驱动：请先输入音频/视频直链');
+                return;
+            }
+            if (isPageVideoLink(url)) {
+                updateMusicHint('音乐驱动：该平台页面链接需先转成直链(mp3/mp4/m3u8)');
+                return;
+            }
+
+            stopMusicDrive({ keepSource: true, pauseAudio: true });
+            revokeMusicObjectUrl();
+
+            const audio = ensureMusicAudioElement();
+            audio.loop = !!musicDriveConfig.sourceLoop;
+            audio.src = url;
+            audio.load();
+            updateMusicHint('音乐驱动：链接已加载，可开始解析');
+
+            if (musicDriveConfig.autoPlayAfterLoad) {
+                await startMusicDrive();
+            }
+        }
+
+        async function loadMusicFromFile(file) {
+            if (!file) {
+                return;
+            }
+            stopMusicDrive({ keepSource: true, pauseAudio: true });
+            revokeMusicObjectUrl();
+
+            const objectUrl = URL.createObjectURL(file);
+            musicDriveState.objectUrl = objectUrl;
+            const audio = ensureMusicAudioElement();
+            audio.loop = !!musicDriveConfig.sourceLoop;
+            audio.src = objectUrl;
+            audio.load();
+            updateMusicHint(`音乐驱动：已加载本地文件 ${file.name}`);
+
+            if (musicDriveConfig.autoPlayAfterLoad) {
+                await startMusicDrive();
+            }
+        }
+
+        function setupMusicFilePicker() {
+            const input = document.getElementById('music-file-input');
+            if (!input || input.dataset.bound === '1') {
+                return;
+            }
+            input.dataset.bound = '1';
+            input.addEventListener('change', async (event) => {
+                const target = event.target;
+                const file = target && target.files && target.files[0] ? target.files[0] : null;
+                if (file) {
+                    await loadMusicFromFile(file);
+                }
+                if (target) {
+                    target.value = '';
+                }
+            });
+        }
+
+        function mapMusicEnergyToEffects(energy) {
+            const clampedEnergy = clamp(energy, 0, 1);
+            const minInterval = clamp(musicDriveConfig.minRowIntervalMs, 0, 800);
+            const maxInterval = clamp(Math.max(minInterval, musicDriveConfig.maxRowIntervalMs), minInterval, 800);
+            springWaveConfig.rowIntervalMs = Math.round(maxInterval - (maxInterval - minInterval) * clampedEnergy);
+            springWaveConfig.stagePauseMs = Math.round(220 - 180 * clampedEnergy);
+            springWaveConfig.innerDelayMs = Math.round(22 - 18 * clampedEnergy);
+            springWaveConfig.damping = clamp(
+                musicDriveConfig.minDamping + (musicDriveConfig.maxDamping - musicDriveConfig.minDamping) * clampedEnergy,
+                0.04,
+                0.25
+            );
+
+            if (springWaveConfig.effect === '效果3-扫光') {
+                sweepLightConfig.intensity = clamp(2.4 + clampedEnergy * 8.4, 0.5, 12);
+                sweepLightConfig.durationMs = Math.round(4200 - 3200 * clampedEnergy);
+                updateSweepLightParams();
+            }
+        }
+
+        function calculateBandAverage(data, start, end) {
+            const safeStart = Math.max(0, Math.min(data.length - 1, Math.floor(start)));
+            const safeEnd = Math.max(safeStart + 1, Math.min(data.length, Math.floor(end)));
+            let sum = 0;
+            for (let i = safeStart; i < safeEnd; i++) {
+                sum += data[i];
+            }
+            return sum / (safeEnd - safeStart) / 255;
+        }
+
+        function updateMusicDrivenEffects() {
+            if (!musicDriveState.running || !musicDriveState.analyser || !musicDriveState.audioEl) {
+                return;
+            }
+
+            const audio = musicDriveState.audioEl;
+            if (!isSpringFestivalMode()) {
+                stopMusicDrive({ keepSource: true, pauseAudio: true });
+                return;
+            }
+            if (audio.paused) {
+                return;
+            }
+
+            const analyser = musicDriveState.analyser;
+            const timeData = musicDriveState.timeData;
+            const freqData = musicDriveState.freqData;
+            analyser.getByteTimeDomainData(timeData);
+            analyser.getByteFrequencyData(freqData);
+
+            let sumSquares = 0;
+            for (let i = 0; i < timeData.length; i++) {
+                const value = (timeData[i] - 128) / 128;
+                sumSquares += value * value;
+            }
+            const rms = Math.sqrt(sumSquares / timeData.length);
+
+            const lowEnd = Math.max(1, Math.floor(freqData.length * 0.12));
+            const midEnd = Math.max(lowEnd + 1, Math.floor(freqData.length * 0.46));
+            const low = calculateBandAverage(freqData, 0, lowEnd);
+            const mid = calculateBandAverage(freqData, lowEnd, midEnd);
+            const high = calculateBandAverage(freqData, midEnd, freqData.length);
+            const spectral = low * 0.52 + mid * 0.33 + high * 0.15;
+            const rawEnergy = clamp((rms * 0.7 + spectral * 0.9) * musicDriveConfig.gainBoost, 0, 1);
+
+            const smoothing = clamp(musicDriveConfig.smoothing, 0.2, 0.95);
+            const prevEnergy = musicDriveState.smoothedEnergy;
+            const smoothedEnergy = prevEnergy * smoothing + rawEnergy * (1 - smoothing);
+            musicDriveState.smoothedEnergy = smoothedEnergy;
+
+            mapMusicEnergyToEffects(smoothedEnergy);
+
+            const now = performance.now();
+            const beatThreshold = clamp(musicDriveConfig.beatThreshold, 0.08, 0.95);
+            const fluxThreshold = clamp(musicDriveConfig.beatFluxThreshold, 0.005, 0.2);
+            const cooldown = clamp(musicDriveConfig.beatCooldownMs, 80, 1200);
+            const flux = smoothedEnergy - prevEnergy;
+            const isBeat = smoothedEnergy >= beatThreshold
+                && flux >= fluxThreshold
+                && now - musicDriveState.lastBeatAt >= cooldown;
+
+            if (isBeat) {
+                musicDriveState.lastBeatAt = now;
+            }
+
+            const triggerInterval = clamp(musicDriveConfig.triggerIntervalMs, 80, 3000);
+            if (musicDriveConfig.autoTrigger && isBeat && now - musicDriveState.lastTriggerAt >= triggerInterval) {
+                musicDriveState.lastTriggerAt = now;
+                if (!springWaveState.running) {
+                    startSpringWave();
+                }
+            }
+
+            if (now - musicDriveState.lastUiAt >= 180) {
+                musicDriveState.lastUiAt = now;
+                updateMusicHint(
+                    `音乐驱动：电平${smoothedEnergy.toFixed(2)} 低${low.toFixed(2)} 中${mid.toFixed(2)} 高${high.toFixed(2)} 节拍${isBeat ? '1' : '0'}`
+                );
+            }
+        }
+
+        async function startMusicDrive() {
+            if (!isSpringFestivalMode()) {
+                updateMusicHint('音乐驱动：请先切换到春晚模式');
+                return;
+            }
+
+            const audio = ensureMusicAudioElement();
+            if (!audio.src) {
+                updateMusicHint('音乐驱动：请先加载链接或上传本地文件');
+                return;
+            }
+
+            try {
+                await ensureMusicAnalyser();
+                audio.loop = !!musicDriveConfig.sourceLoop;
+                await audio.play();
+                musicDriveState.running = true;
+                musicDriveState.smoothedEnergy = 0;
+                musicDriveState.lastBeatAt = 0;
+                musicDriveState.lastTriggerAt = 0;
+                musicDriveState.lastUiAt = 0;
+                updateMusicHint('音乐驱动：已启动，正在解析频谱...');
+                setPanelVisible(false);
+            } catch (error) {
+                const message = error && error.message ? error.message : '播放启动失败';
+                updateMusicHint(`音乐驱动：${message}`);
+                musicDriveState.running = false;
+            }
+        }
+
+        function stopMusicDrive(options = {}) {
+            const keepSource = options.keepSource !== false;
+            const pauseAudio = options.pauseAudio !== false;
+            const silentStatus = options.silentStatus === true;
+            musicDriveState.running = false;
+            musicDriveState.smoothedEnergy = 0;
+            musicDriveState.lastBeatAt = 0;
+            musicDriveState.lastTriggerAt = 0;
+
+            if (pauseAudio && musicDriveState.audioEl) {
+                musicDriveState.audioEl.pause();
+            }
+
+            if (!keepSource && musicDriveState.audioEl) {
+                musicDriveState.audioEl.removeAttribute('src');
+                musicDriveState.audioEl.load();
+                revokeMusicObjectUrl();
+                if (silentStatus) {
+                    return;
+                }
+                updateMusicHint('音乐驱动：已停止并清空音源');
+                return;
+            }
+
+            if (silentStatus) {
+                return;
+            }
+            updateMusicHint('音乐驱动：已停止（音源保留）');
+        }
+
+        function stopSpringWave() {
+            springWaveState.running = false;
+            springWaveState.runId += 1;
+            for (const item of sweepLights) {
+                item.light.visible = false;
+                item.light.intensity = 0;
+            }
+        }
+
+        function getSpringActiveRows() {
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const ordered = [];
+            for (let row = 0; row < rows; row++) {
+                if (activeMask[row] && activeMask[row].some((v) => v === 1)) {
+                    ordered.push(row);
+                }
+            }
+            if (springWaveConfig.direction === '从下到上') {
+                ordered.reverse();
+            }
+            return ordered;
+        }
+
+        function normalizeFaceIndex(face) {
+            const v = Number.isFinite(face) ? Math.floor(face) : 0;
+            return ((v % 3) + 3) % 3;
+        }
+
+        function getGroupPendingFaceIndex(group) {
+            if (!group || !group.userData) {
+                return 0;
+            }
+            if (Number.isFinite(group.userData.targetFaceIndex)) {
+                return normalizeFaceIndex(group.userData.targetFaceIndex);
+            }
+            if (Number.isFinite(group.userData.faceIndex)) {
+                return normalizeFaceIndex(group.userData.faceIndex);
+            }
+            return 0;
+        }
+
+        function queueGroupToFace(group, targetFace, options = {}) {
+            if (!group || !group.userData) {
+                return false;
+            }
+            const safeFace = normalizeFaceIndex(targetFace);
+            const baseRotationX = Number.isFinite(group.userData.baseRotationX)
+                ? group.userData.baseRotationX
+                : config.initRotationX;
+            const immediate = options.immediate === true;
+            const damping = Number.isFinite(options.damping)
+                ? clamp(options.damping, 0.04, 0.25)
+                : null;
+
+            if (immediate) {
+                const targetRotation = baseRotationX + safeFace * (Math.PI * 2 / 3);
+                group.rotation.x = targetRotation;
+                group.userData.targetRotationX = targetRotation;
+                group.userData.faceIndex = safeFace;
+                group.userData.targetFaceIndex = safeFace;
+                group.userData.currentOn = safeFace !== 0;
+                group.userData.targetOn = safeFace !== 0;
+                group.userData.isAnimating = false;
+                group.userData.motionDamping = null;
+                return true;
+            }
+
+            const pendingFace = getGroupPendingFaceIndex(group);
+            const steps = (safeFace - pendingFace + 3) % 3;
+            const nextTargetOn = safeFace !== 0;
+            if (steps === 0 && group.userData.targetOn === nextTargetOn) {
+                return false;
+            }
+
+            const anchorRotation = (group.userData.isAnimating && Number.isFinite(group.userData.targetRotationX))
+                ? group.userData.targetRotationX
+                : group.rotation.x;
+
+            group.userData.targetRotationX = anchorRotation + steps * ((Math.PI * 2) / 3);
+            group.userData.targetFaceIndex = safeFace;
+            group.userData.targetOn = nextTargetOn;
+            group.userData.isAnimating = steps > 0;
+            if (damping !== null) {
+                group.userData.motionDamping = damping;
+            }
+            return steps > 0;
+        }
+
+        function queueGroupStepFlip(group, steps, damping = null) {
+            const safeSteps = ((Math.floor(steps || 0) % 3) + 3) % 3;
+            if (safeSteps === 0) {
+                return false;
+            }
+            const nextFace = (getGroupPendingFaceIndex(group) + safeSteps) % 3;
+            return queueGroupToFace(group, nextFace, { immediate: false, damping });
+        }
+
+        function triggerRowFlip(row, steps) {
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            for (let col = 0; col < cols; col++) {
+                if (!activeMask[row] || activeMask[row][col] !== 1) {
+                    continue;
+                }
+                const group = getPixelByGrid(row, col);
+                if (!group || group.userData.isRim) {
+                    continue;
+                }
+                queueGroupStepFlip(group, steps, springWaveConfig.damping);
+            }
+        }
+
+        function getRowActiveColumns(row) {
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const ordered = [];
+            for (let col = 0; col < cols; col++) {
+                if (activeMask[row] && activeMask[row][col] === 1) {
+                    ordered.push(col);
+                }
+            }
+            if (springWaveConfig.innerDirection === '从右到左') {
+                ordered.reverse();
+            }
+            return ordered;
+        }
+
+        function triggerSinglePixelFlip(row, col, steps) {
+            const group = getPixelByGrid(row, col);
+            if (!group || group.userData.isRim) {
+                return;
+            }
+            queueGroupStepFlip(group, steps, springWaveConfig.damping);
+        }
+
+        async function triggerRowFlipInnerWave(row, steps, runId) {
+            const cols = getRowActiveColumns(row);
+            const delay = Math.max(0, Math.floor(springWaveConfig.innerDelayMs));
+            for (let i = 0; i < cols.length; i++) {
+                if (!springWaveState.running || runId !== springWaveState.runId) {
+                    return;
+                }
+                triggerSinglePixelFlip(row, cols[i], steps);
+                if (delay > 0 && i < cols.length - 1) {
+                    await waitMs(delay);
+                }
+            }
+        }
+
+        async function playSpringWaveRow(row, runId) {
+            if (!springWaveState.running || runId !== springWaveState.runId) {
+                return;
+            }
+            if (springWaveConfig.effect === '效果2-行内波') {
+                await triggerRowFlipInnerWave(row, 2, runId); // 先翻两个面
+            } else {
+                triggerRowFlip(row, 2); // 效果1：整行同步翻
+            }
+            await waitMs(Math.max(0, Math.floor(springWaveConfig.stagePauseMs)));
+            if (!springWaveState.running || runId !== springWaveState.runId) {
+                return;
+            }
+            if (springWaveConfig.effect === '效果2-行内波') {
+                await triggerRowFlipInnerWave(row, 1, runId); // 再翻一个面
+            } else {
+                triggerRowFlip(row, 1); // 效果1：整行同步翻
+            }
+        }
+
+        async function playSweepLightEffect(runId) {
+            if (!sweepLights.length) {
+                return;
+            }
+            updateSweepLightParams();
+
+            const bounds = activeWallBounds || {
+                minX: -8,
+                maxX: 8,
+                minY: -6,
+                maxY: 6,
+                centerX: 0,
+                centerY: 0,
+                width: 16,
+                height: 12
+            };
+
+            const duration = Math.max(100, Math.floor(sweepLightConfig.durationMs));
+            const overscanRatio = clamp(sweepLightConfig.overscan, 0, 0.8);
+            const overscanDistance = Math.max(UNIT_SIZE, bounds.height * overscanRatio);
+            const topY = bounds.maxY + overscanDistance;
+            const bottomY = bounds.minY - overscanDistance;
+            const fromY = springWaveConfig.direction === '从下到上' ? bottomY : topY;
+            const toY = springWaveConfig.direction === '从下到上' ? topY : bottomY;
+            const count = sweepLights.length;
+            const centerX = bounds.centerX + sweepLightConfig.xOffset;
+            const span = Math.max(UNIT_SIZE, bounds.width * clamp(sweepLightConfig.spanScale, 0.6, 2.2));
+            const leftX = centerX - span * 0.5;
+            const stepX = count > 1 ? (span / (count - 1)) : 0;
+            const edgeAttenuation = clamp(sweepLightConfig.edgeAttenuation, 0, 0.8);
+            const centerIndex = (count - 1) * 0.5;
+            const maxDistance = Math.max(1, centerIndex);
+
+            for (const item of sweepLights) {
+                item.light.visible = true;
+            }
+            const started = performance.now();
+            while (springWaveState.running && runId === springWaveState.runId) {
+                const elapsed = performance.now() - started;
+                const t = clamp(elapsed / duration, 0, 1);
+                const eased = t * t * (3 - 2 * t); // smoothstep
+                const y = fromY + (toY - fromY) * eased;
+                const envelope = 0.25 + 0.75 * Math.sin(Math.PI * t);
+
+                for (let i = 0; i < sweepLights.length; i++) {
+                    const item = sweepLights[i];
+                    const x = (count === 1) ? centerX : (leftX + stepX * i);
+                    const distanceNorm = (count === 1) ? 0 : Math.abs(i - centerIndex) / maxDistance;
+                    const weight = 1 - edgeAttenuation * distanceNorm;
+                    item.light.position.set(x, y, sweepLightConfig.z);
+                    item.target.position.set(x, y, -4);
+                    item.light.intensity = sweepLightConfig.intensity * envelope * weight;
+                }
+
+                if (t >= 1) {
+                    break;
+                }
+                await waitMs(16);
+            }
+
+            for (const item of sweepLights) {
+                item.light.visible = false;
+                item.light.intensity = 0;
+            }
+        }
+
+        async function startSpringWave() {
+            if (!isSpringFestivalMode() || pixels.length === 0) {
+                return;
+            }
+
+            stopPlayback();
+            stopSpringWave();
+            springWaveState.running = true;
+            const runId = springWaveState.runId;
+            const rowOrder = getSpringActiveRows();
+            const rowTasks = [];
+            const rowDelay = Math.max(0, Math.floor(springWaveConfig.rowIntervalMs));
+
+            if (springWaveConfig.effect === '效果3-扫光') {
+                await playSweepLightEffect(runId);
+                if (runId === springWaveState.runId) {
+                    springWaveState.running = false;
+                }
+                return;
+            }
+
+            for (let i = 0; i < rowOrder.length; i++) {
+                if (!springWaveState.running || runId !== springWaveState.runId) {
+                    break;
+                }
+                rowTasks.push(playSpringWaveRow(rowOrder[i], runId));
+                if (rowDelay > 0) {
+                    await waitMs(rowDelay);
+                }
+            }
+
+            await Promise.all(rowTasks);
+            if (runId === springWaveState.runId) {
+                springWaveState.running = false;
+            }
+        }
+
+        function getPixelByGrid(row, col) {
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const safeRow = Math.floor(row);
+            const safeCol = Math.floor(col);
+            if (safeRow < 0 || safeRow >= rows || safeCol < 0 || safeCol >= cols) {
+                return null;
+            }
+            return pixelLookup.get(gridKey(safeRow, safeCol)) || null;
+        }
+
+        function setPixelDisplayState(row, col, on, immediate = false) {
+            const group = getPixelByGrid(row, col);
+            if (!group || group.userData.isRim) return false;
+            const targetFace = on ? Math.max(1, Math.min(2, Math.floor(displayConfig.onFace))) : 0;
+            return queueGroupToFace(group, targetFace, { immediate });
+        }
+
+        function applyTextGrid(grid, immediate = false) {
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const onFace = Math.max(1, Math.min(2, Math.floor(displayConfig.onFace)));
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const group = getPixelByGrid(row, col);
+                    if (!group || group.userData.isRim) {
+                        continue;
+                    }
+                    const desiredOn = grid[row][col] === 1;
+                    const desiredFace = desiredOn ? onFace : 0;
+                    if (!immediate) {
+                        const pendingFace = getGroupPendingFaceIndex(group);
+                        if (pendingFace === desiredFace) {
+                            continue;
+                        }
+                    }
+                    queueGroupToFace(group, desiredFace, { immediate });
+                }
+            }
+        }
+
+        function findAlphaBounds(alphaMap, width, height, threshold = 12) {
+            let minX = width;
+            let minY = height;
+            let maxX = -1;
+            let maxY = -1;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    if (alphaMap[y * width + x] < threshold) {
+                        continue;
+                    }
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            if (maxX < minX || maxY < minY) {
+                return null;
+            }
+            return {
+                minX,
+                minY,
+                maxX,
+                maxY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1
+            };
+        }
+
+        function resampleAlphaToGrid(alphaMap, sourceWidth, sourceHeight, targetCols, targetRows, options = {}) {
+            const grid = Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
+            if (!alphaMap || sourceWidth <= 0 || sourceHeight <= 0 || targetCols <= 0 || targetRows <= 0) {
+                return grid;
+            }
+
+            const coverageThreshold = clamp(Number(options.coverageThreshold ?? 0.12), 0.01, 0.9);
+            const scoreThreshold = clamp(Number(options.scoreThreshold ?? 0.12), 0.01, 0.95);
+            const peakThreshold = clamp(Number(options.peakThreshold ?? 0.45), 0.01, 1);
+            const coverageCutoff = clamp(Number(options.coverageCutoff ?? 0.2), 0.01, 1);
+
+            const scaleFactor = Math.max(sourceWidth / targetCols, sourceHeight / targetRows, 1);
+            const scaledW = Math.min(targetCols, Math.max(1, Math.floor(sourceWidth / scaleFactor)));
+            const scaledH = Math.min(targetRows, Math.max(1, Math.floor(sourceHeight / scaleFactor)));
+            const startCol = Math.floor((targetCols - scaledW) / 2);
+            const startRow = Math.floor((targetRows - scaledH) / 2);
+
+            for (let ty = 0; ty < scaledH; ty++) {
+                const y0 = Math.floor(ty * sourceHeight / scaledH);
+                const y1 = Math.min(sourceHeight, Math.floor((ty + 1) * sourceHeight / scaledH));
+                for (let tx = 0; tx < scaledW; tx++) {
+                    const x0 = Math.floor(tx * sourceWidth / scaledW);
+                    const x1 = Math.min(sourceWidth, Math.floor((tx + 1) * sourceWidth / scaledW));
+
+                    let sum = 0;
+                    let peak = 0;
+                    let coverageCount = 0;
+                    let count = 0;
+
+                    for (let y = y0; y < y1; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            const alpha = alphaMap[y * sourceWidth + x] / 255;
+                            sum += alpha;
+                            if (alpha > peak) {
+                                peak = alpha;
+                            }
+                            if (alpha >= coverageCutoff) {
+                                coverageCount += 1;
+                            }
+                            count += 1;
+                        }
+                    }
+
+                    if (count === 0) {
+                        continue;
+                    }
+
+                    const avg = sum / count;
+                    const coverage = coverageCount / count;
+                    const score = avg * 0.72 + peak * 0.28;
+                    if (score >= scoreThreshold || coverage >= coverageThreshold || peak >= peakThreshold) {
+                        grid[startRow + ty][startCol + tx] = 1;
+                    }
+                }
+            }
+
+            return grid;
+        }
+
+        function bridgeBinaryGridGaps(sourceGrid, neighborThreshold = 3) {
+            const rows = sourceGrid.length;
+            const cols = rows > 0 ? sourceGrid[0].length : 0;
+            if (rows < 3 || cols < 3) {
+                return sourceGrid;
+            }
+            const grid = sourceGrid.map((row) => row.slice());
+            for (let r = 1; r < rows - 1; r++) {
+                for (let c = 1; c < cols - 1; c++) {
+                    if (sourceGrid[r][c]) {
+                        continue;
+                    }
+                    const n = sourceGrid[r - 1][c] + sourceGrid[r + 1][c] + sourceGrid[r][c - 1] + sourceGrid[r][c + 1];
+                    const connected =
+                        (sourceGrid[r - 1][c] && sourceGrid[r + 1][c]) ||
+                        (sourceGrid[r][c - 1] && sourceGrid[r][c + 1]);
+                    if (connected && n >= neighborThreshold) {
+                        grid[r][c] = 1;
+                    }
+                }
+            }
+            return grid;
+        }
+
+        function countOnPixels(grid) {
+            let count = 0;
+            for (let r = 0; r < grid.length; r++) {
+                for (let c = 0; c < grid[r].length; c++) {
+                    if (grid[r][c]) count += 1;
+                }
+            }
+            return count;
+        }
+
+        function dilateBinaryGrid(sourceGrid, passes = 1) {
+            let grid = sourceGrid.map((row) => row.slice());
+            const rows = grid.length;
+            const cols = rows > 0 ? grid[0].length : 0;
+            if (rows === 0 || cols === 0 || passes <= 0) {
+                return grid;
+            }
+            for (let pass = 0; pass < passes; pass++) {
+                const next = grid.map((row) => row.slice());
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (grid[r][c]) {
+                            continue;
+                        }
+                        let hasNeighbor = false;
+                        for (let dr = -1; dr <= 1 && !hasNeighbor; dr++) {
+                            for (let dc = -1; dc <= 1; dc++) {
+                                const rr = r + dr;
+                                const cc = c + dc;
+                                if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) {
+                                    continue;
+                                }
+                                if (grid[rr][cc]) {
+                                    hasNeighbor = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hasNeighbor) {
+                            next[r][c] = 1;
+                        }
+                    }
+                }
+                grid = next;
+            }
+            return grid;
+        }
+
+        function rasterizeGlyphToBinaryGrid(ch, targetWidth, targetHeight, options = {}) {
+            const char = String(ch || ' ');
+            const safeWidth = Math.max(1, Math.floor(targetWidth));
+            const safeHeight = Math.max(1, Math.floor(targetHeight));
+            if (!char.trim()) {
+                return Array.from({ length: safeHeight }, () => Array(safeWidth).fill(0));
+            }
+
+            const isCjkGlyph = options.isCjk === true;
+            const edgeThreshold = clamp(Number(options.edgeThreshold ?? 96), 40, 220);
+            const fillRatio = clamp(Number(options.fillRatio ?? 0.08), 0.01, 0.9);
+            const cacheKey = [
+                char,
+                safeWidth,
+                safeHeight,
+                isCjkGlyph ? 1 : 0,
+                displayConfig.bold ? 1 : 0,
+                clamp(displayConfig.textScale, 0.35, 1.0).toFixed(3),
+                edgeThreshold,
+                fillRatio
+            ].join('|');
+            if (glyphBitmapCache.has(cacheKey)) {
+                return glyphBitmapCache.get(cacheKey).map((row) => row.slice());
+            }
+
+            const superSample = 8;
+            const sourceWidth = Math.max(32, safeWidth * superSample);
+            const sourceHeight = Math.max(32, safeHeight * superSample);
+            const canvas = document.createElement('canvas');
+            canvas.width = sourceWidth;
+            canvas.height = sourceHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                const empty = Array.from({ length: safeHeight }, () => Array(safeWidth).fill(0));
+                glyphBitmapCache.set(cacheKey, empty);
+                return empty.map((row) => row.slice());
+            }
+
+            ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const weight = displayConfig.bold ? '700' : '500';
+            const fontFamily = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC","Segoe UI",sans-serif';
+            const scale = clamp(displayConfig.textScale, 0.35, 1.0);
+
+            let fontSize = Math.floor(sourceHeight * (isCjkGlyph ? 0.86 : 0.9) * scale);
+            fontSize = Math.max(10, Math.min(fontSize, Math.floor(sourceHeight * 0.96)));
+            ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+            while (ctx.measureText(char).width > sourceWidth * 0.92 && fontSize > 8) {
+                fontSize -= 2;
+                ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+            }
+
+            ctx.fillText(char, sourceWidth / 2, sourceHeight / 2);
+
+            const image = ctx.getImageData(0, 0, sourceWidth, sourceHeight).data;
+            const alphaMap = new Uint8ClampedArray(sourceWidth * sourceHeight);
+            for (let i = 0; i < alphaMap.length; i++) {
+                alphaMap[i] = image[i * 4 + 3];
+            }
+
+            const bounds = findAlphaBounds(alphaMap, sourceWidth, sourceHeight, 8);
+            if (!bounds) {
+                const empty = Array.from({ length: safeHeight }, () => Array(safeWidth).fill(0));
+                glyphBitmapCache.set(cacheKey, empty);
+                return empty.map((row) => row.slice());
+            }
+
+            const padX = Math.max(1, Math.floor(bounds.width * (isCjkGlyph ? 0.08 : 0.05)));
+            const padY = Math.max(1, Math.floor(bounds.height * (isCjkGlyph ? 0.08 : 0.05)));
+            const cropMinX = Math.max(0, bounds.minX - padX);
+            const cropMaxX = Math.min(sourceWidth - 1, bounds.maxX + padX);
+            const cropMinY = Math.max(0, bounds.minY - padY);
+            const cropMaxY = Math.min(sourceHeight - 1, bounds.maxY + padY);
+            const cropWidth = cropMaxX - cropMinX + 1;
+            const cropHeight = cropMaxY - cropMinY + 1;
+            const croppedAlpha = new Uint8ClampedArray(cropWidth * cropHeight);
+            for (let y = 0; y < cropHeight; y++) {
+                for (let x = 0; x < cropWidth; x++) {
+                    croppedAlpha[y * cropWidth + x] = alphaMap[(cropMinY + y) * sourceWidth + (cropMinX + x)];
+                }
+            }
+
+            let grid = resampleAlphaToGrid(croppedAlpha, cropWidth, cropHeight, safeWidth, safeHeight, {
+                coverageThreshold: isCjkGlyph ? Math.max(0.04, fillRatio * 0.7) : 0.11,
+                scoreThreshold: isCjkGlyph ? 0.05 : 0.1,
+                peakThreshold: isCjkGlyph ? Math.max(0.18, edgeThreshold / 255) : 0.28,
+                coverageCutoff: isCjkGlyph ? 0.08 : 0.14
+            });
+
+            if (isCjkGlyph) {
+                grid = bridgeBinaryGridGaps(grid, 2);
+                const fill = countOnPixels(grid) / Math.max(1, safeWidth * safeHeight);
+                if (fill < 0.09) {
+                    grid = dilateBinaryGrid(grid, 1);
+                }
+            }
+
+            glyphBitmapCache.set(cacheKey, grid.map((row) => row.slice()));
+            return grid;
+        }
+
+        function buildCjkTextBitmap(text, targetRows = 20) {
+            const content = normalizeDisplayText(text) || ' ';
+            const safeHeight = Math.max(12, Math.floor(targetRows));
+            const chars = Array.from(content);
+            const gapBase = Math.max(1, Math.round(clamp(Number(displayConfig.cjkGapCells ?? 0.6), 0, 3)));
+            const glyphs = [];
+            let totalWidth = 0;
+
+            for (let i = 0; i < chars.length; i++) {
+                const ch = chars[i];
+                const isCjkGlyph = isCjkChar(ch);
+                const glyphWidth = ch === ' '
+                    ? Math.max(2, Math.round(safeHeight * 0.38))
+                    : (isCjkGlyph
+                        ? safeHeight
+                        : Math.max(4, Math.round(safeHeight * clamp(Number(displayConfig.cjkAdvanceRatio ?? 0.88), 0.45, 1.0) * 0.76)));
+
+                const glyphBitmap = ch === ' '
+                    ? Array.from({ length: safeHeight }, () => Array(glyphWidth).fill(0))
+                    : rasterizeGlyphToBinaryGrid(ch, glyphWidth, safeHeight, {
+                        isCjk: isCjkGlyph,
+                        edgeThreshold: displayConfig.cjkEdgeThreshold,
+                        fillRatio: displayConfig.cjkFillRatio
+                    });
+
+                glyphs.push({ bitmap: glyphBitmap, width: glyphWidth });
+                totalWidth += glyphWidth;
+                if (i < chars.length - 1) {
+                    totalWidth += gapBase;
+                }
+            }
+
+            const bitmap = Array.from({ length: safeHeight }, () => Array(totalWidth).fill(0));
+            let offsetX = 0;
+            for (let i = 0; i < glyphs.length; i++) {
+                const item = glyphs[i];
+                for (let y = 0; y < safeHeight; y++) {
+                    for (let x = 0; x < item.width; x++) {
+                        if (item.bitmap[y][x]) {
+                            bitmap[y][offsetX + x] = 1;
+                        }
+                    }
+                }
+                offsetX += item.width + (i < glyphs.length - 1 ? gapBase : 0);
+            }
+
+            return {
+                bitmap,
+                width: totalWidth,
+                height: safeHeight
+            };
+        }
+
+        function renderCanvasBitmapToGrid(text, targetCols, targetRows) {
+            const width = Math.max(192, targetCols * 36);
+            const height = Math.max(96, targetRows * 36);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
+            }
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+
+            const content = normalizeDisplayText(text) || ' ';
+            const weight = displayConfig.bold ? '700' : '500';
+            const fontFamily = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC","Segoe UI",sans-serif';
+            const hasCjk = containsCjkChars(content);
+            const chars = Array.from(content);
+            const cjkAdvanceRatio = clamp(Number(displayConfig.cjkAdvanceRatio ?? 0.82), 0.45, 1.0);
+            const cjkTrackingRatio = clamp(Number(displayConfig.cjkTrackingRatio ?? 0.08), 0, 0.3);
+            const cjkEdgeThreshold = clamp(Number(displayConfig.cjkEdgeThreshold ?? 120), 60, 220);
+            const cjkFillRatio = clamp(Number(displayConfig.cjkFillRatio ?? 0.12), 0.01, 0.9);
+
+            let fontSize = Math.floor(height * 0.68 * clamp(displayConfig.textScale, 0.35, 1.0));
+            fontSize = Math.max(12, Math.min(fontSize, Math.floor(height * 0.9)));
+            ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+
+            const maxTextWidth = width * 0.9;
+            const computeTextWidth = () => {
+                if (!hasCjk || chars.length <= 1) {
+                    return ctx.measureText(content).width;
+                }
+                const tracking = Math.max(0, fontSize * cjkTrackingRatio);
+                let total = 0;
+                for (let i = 0; i < chars.length; i++) {
+                    const ch = chars[i];
+                    const advance = isCjkChar(ch)
+                        ? fontSize * cjkAdvanceRatio
+                        : Math.max(fontSize * 0.35, ctx.measureText(ch).width);
+                    total += advance;
+                    if (i < chars.length - 1) {
+                        total += tracking;
+                    }
+                }
+                return total;
+            };
+
+            while (computeTextWidth() > maxTextWidth && fontSize > 10) {
+                fontSize -= 2;
+                ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+            }
+
+            if (!hasCjk || chars.length <= 1) {
+                ctx.fillText(content, width / 2, height / 2);
+            } else {
+                const tracking = Math.max(0, fontSize * cjkTrackingRatio);
+                const advances = chars.map((ch) => (
+                    isCjkChar(ch) ? fontSize * cjkAdvanceRatio : Math.max(fontSize * 0.35, ctx.measureText(ch).width)
+                ));
+                let total = 0;
+                for (let i = 0; i < advances.length; i++) {
+                    total += advances[i];
+                    if (i < advances.length - 1) {
+                        total += tracking;
+                    }
+                }
+                let cursor = (width - total) / 2;
+                for (let i = 0; i < chars.length; i++) {
+                    const advance = advances[i];
+                    ctx.fillText(chars[i], cursor + advance * 0.5, height / 2);
+                    cursor += advance + (i < chars.length - 1 ? tracking : 0);
+                }
+            }
+
+            const image = ctx.getImageData(0, 0, width, height).data;
+            const alphaMap = new Uint8ClampedArray(width * height);
+            for (let i = 0; i < alphaMap.length; i++) {
+                alphaMap[i] = image[i * 4 + 3];
+            }
+
+            const baseThreshold = clamp(displayConfig.threshold, 8, 220);
+            const bounds = findAlphaBounds(alphaMap, width, height, Math.max(8, Math.floor(baseThreshold * 0.4)));
+            if (!bounds) {
+                return Array.from({ length: targetRows }, () => Array(targetCols).fill(0));
+            }
+
+            const padX = hasCjk ? Math.max(2, Math.floor(bounds.width * 0.06)) : 2;
+            const padY = hasCjk ? Math.max(2, Math.floor(bounds.height * 0.08)) : 2;
+            const cropMinX = Math.max(0, bounds.minX - padX);
+            const cropMaxX = Math.min(width - 1, bounds.maxX + padX);
+            const cropMinY = Math.max(0, bounds.minY - padY);
+            const cropMaxY = Math.min(height - 1, bounds.maxY + padY);
+            const cropWidth = cropMaxX - cropMinX + 1;
+            const cropHeight = cropMaxY - cropMinY + 1;
+            const croppedAlpha = new Uint8ClampedArray(cropWidth * cropHeight);
+            for (let y = 0; y < cropHeight; y++) {
+                for (let x = 0; x < cropWidth; x++) {
+                    croppedAlpha[y * cropWidth + x] = alphaMap[(cropMinY + y) * width + (cropMinX + x)];
+                }
+            }
+
+            let grid = resampleAlphaToGrid(croppedAlpha, cropWidth, cropHeight, targetCols, targetRows, {
+                coverageThreshold: hasCjk ? cjkFillRatio : 0.16,
+                scoreThreshold: hasCjk ? Math.max(0.08, cjkFillRatio * 0.65) : 0.18,
+                peakThreshold: hasCjk ? (cjkEdgeThreshold / 255) : (baseThreshold / 255),
+                coverageCutoff: hasCjk ? 0.18 : 0.24
+            });
+
+            if (hasCjk) {
+                grid = bridgeBinaryGridGaps(grid, 3);
+            }
+
+            return grid;
+        }
+
+        function renderTextToGrid(text) {
+            const rows = Math.max(1, Math.floor(config.gridRows));
+            const cols = Math.max(1, Math.floor(config.gridCols));
+            const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+            if (!isDisplayMode()) {
+                return grid;
+            }
+            const content = normalizeDisplayText(text);
+            const activeCols = decideActiveColumns(content, cols);
+            const startCol = Math.floor((cols - activeCols) / 2);
+
+            let compactGrid;
+            if (containsOnlyPixelFontChars(content)) {
+                const built = buildPixelFontBitmap(content || ' ');
+                compactGrid = scaleBitmapToGrid(built.bitmap, built.width, built.height, activeCols, rows);
+            } else if (containsCjkChars(content)) {
+                const built = buildCjkTextBitmap(content || ' ', getCjkTargetRows());
+                const cjkFillRatio = clamp(Number(displayConfig.cjkFillRatio ?? 0.08), 0.01, 0.9);
+                compactGrid = scaleBitmapToGrid(
+                    built.bitmap,
+                    built.width,
+                    built.height,
+                    activeCols,
+                    rows,
+                    Math.max(0.04, cjkFillRatio * 0.45)
+                );
+                const thinPasses = Math.max(0, Math.floor(displayConfig.cjkThinPasses ?? 0));
+                if (thinPasses > 0) {
+                    compactGrid = thinBinaryGridZhangSuen(compactGrid, Math.min(6, thinPasses));
+                }
+            } else {
+                compactGrid = renderCanvasBitmapToGrid(content || ' ', activeCols, rows);
+            }
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < activeCols; col++) {
+                    grid[row][startCol + col] = compactGrid[row][col];
+                }
+            }
+
+            return grid;
+        }
+
+        function previewCurrentSequenceText() {
+            if (!isDisplayMode()) {
+                return;
+            }
+            const items = parseDisplaySequence(displayConfig.sequence);
+            const text = items.length > 0 ? items[0] : '';
+            playbackState.lastText = text;
+            ensureDisplayGridCapacity(text);
+            const grid = renderTextToGrid(text);
+            applyTextGrid(grid);
+        }
+
+        function stopPlayback() {
+            playbackState.running = false;
+            playbackState.runId += 1;
+        }
+
+        async function startPlayback() {
+            if (!isDisplayMode()) {
+                return;
+            }
+            const items = parseDisplaySequence(displayConfig.sequence);
+            if (items.length === 0 || pixels.length === 0) {
+                return;
+            }
+
+            stopPlayback();
+            playbackState.running = true;
+            const runId = playbackState.runId;
+            setPanelVisible(false);
+
+            let index = 0;
+            while (playbackState.running && runId === playbackState.runId) {
+                const text = items[index];
+                playbackState.lastText = text;
+                ensureDisplayGridCapacity(text);
+                const grid = renderTextToGrid(text);
+                applyTextGrid(grid);
+                await waitMs(Math.max(200, Math.floor(displayConfig.intervalMs)));
+                if (!playbackState.running || runId !== playbackState.runId) {
+                    break;
+                }
+                index += 1;
+                if (index >= items.length) {
+                    if (displayConfig.loop) {
+                        index = 0;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            playbackState.running = false;
+        }
+
+        function initResources() {
+            // 1. Plate Geometry
+            const PLATE_WIDTH = UNIT_SIZE * PLATE_SCALE;
+            plateGeometry = createRoundedPlateGeometry(
+                UNIT_SIZE,
+                PLATE_WIDTH,
+                PLATE_THICKNESS,
+                BEVEL_THICKNESS,
+                CORNER_RADIUS
+            );
+
+            // 2. Inner Prism Geometry
+            innerGeometry = createInnerPrismGeometry(
+                innerParams.size,
+                innerParams.length,
+                innerParams.radius,
+                innerParams.bevel
+            );
+
+            // 3. Materials
+            const colors = [
+                buildFaceColor(1),
+                buildFaceColor(2),
+                buildFaceColor(3)
+            ];
+
+            materials = colors.map(c => new THREE.MeshPhysicalMaterial({
+                color: c,
+                roughness: materialParams.roughness,
+                metalness: materialParams.metalness,
+                clearcoat: materialParams.clearcoat,
+                clearcoatRoughness: materialParams.clearcoatRoughness,
+                envMapIntensity: materialParams.envMapIntensity,
+                side: THREE.DoubleSide
+            }));
+
+            innerMaterial = new THREE.MeshPhysicalMaterial({
+                color: innerParams.color,
+                roughness: 0.14,
+                metalness: 0.8,
+                clearcoat: 0.4,
+                clearcoatRoughness: 0.08,
+                envMapIntensity: 2.4
+            });
+        }
+
+        function createPrismPrototype() {
+            const group = new THREE.Group();
+
+            // 1. Create 3 Plates
+            const apothem = UNIT_SIZE / (2 * Math.sqrt(3));
+            const distance = apothem - PLATE_THICKNESS / 2 + GAP_OFFSET;
+
+            // Angles: Top (90), Right (-30), Left (210)
+            const angles = [Math.PI / 2, -Math.PI / 6, 7 * Math.PI / 6];
+
+            for (let i = 0; i < 3; i++) {
+                const plate = new THREE.Mesh(plateGeometry, materials[i]);
+                plate.castShadow = true;
+                plate.receiveShadow = true;
+
+                const angle = angles[i];
+                plate.position.set(0, distance * Math.sin(angle), distance * Math.cos(angle));
+                plate.rotation.x = -angle;
+
+                group.add(plate);
+            }
+
+            // 2. Create Inner Prism
+            const inner = new THREE.Mesh(innerGeometry, innerMaterial);
+            inner.rotation.y = Math.PI / 2; // Rotate to align X axis
+            inner.position.set(innerParams.x, innerParams.y, innerParams.z);
+
+            group.add(inner);
+
+            return group;
+        }
+
+        function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
+            const shape = new THREE.Shape();
+            const w = width;
+            const h = height;
+            const r = radius;
+
+            const x = -w / 2;
+            const y = -h / 2;
+
+            shape.moveTo(x + r, y);
+            shape.lineTo(x + w - r, y);
+            shape.quadraticCurveTo(x + w, y, x + w, y + r);
+            shape.lineTo(x + w, y + h - r);
+            shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            shape.lineTo(x + r, y + h);
+            shape.quadraticCurveTo(x, y + h, x, y + h - r);
+            shape.lineTo(x, y + r);
+            shape.quadraticCurveTo(x, y, x + r, y);
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: thickness,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 3
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.computeBoundingBox();
+            const centerOffset = -0.5 * (geometry.boundingBox.max.z - geometry.boundingBox.min.z);
+            geometry.translate(0, 0, centerOffset);
+
+            return geometry;
+        }
+
+        function createInnerPrismGeometry(size, length, radius, bevel) {
+            const shape = new THREE.Shape();
+            const R = size;
+            const r = radius;
+
+            const angleStart = -Math.PI / 2;
+            const angleStep = Math.PI * 2 / 3;
+            const dist = R - 2 * r;
+
+            for (let i = 0; i < 3; i++) {
+                const angle = angleStart + i * angleStep;
+                const cx = dist * Math.cos(angle);
+                const cy = dist * Math.sin(angle);
+                shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
+            }
+            shape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: length,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 5
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            // Center along Z only
+            geometry.translate(0, 0, -length / 2);
+            return geometry;
+        }
+
+        function updateMouseFromClientPosition(clientX, clientY) {
+            if (!renderer || !renderer.domElement) {
+                return;
+            }
+            const rect = renderer.domElement.getBoundingClientRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) {
+                return;
+            }
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        }
+
+        function resolvePixelGroupFromObject(obj) {
+            if (!obj) {
+                return null;
+            }
+            if (obj.userData && obj.userData.parentGroup) {
+                return obj.userData.parentGroup;
+            }
+            let curr = obj;
+            while (curr && curr.parent && !pixels.includes(curr)) {
+                curr = curr.parent;
+            }
+            if (curr && pixels.includes(curr)) {
+                return curr;
+            }
+            return null;
+        }
+
+        function pickPixelGroupAtClient(clientX, clientY) {
+            updateMouseFromClientPosition(clientX, clientY);
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            for (let i = 0; i < intersects.length; i++) {
+                const group = resolvePixelGroupFromObject(intersects[i].object);
+                if (group && !group.userData.isRim) {
+                    return group;
+                }
+            }
+            return null;
+        }
+
+        function triggerFreeModeFlipAt(clientX, clientY) {
+            if (!isFreeMode()) {
+                return;
+            }
+            const group = pickPixelGroupAtClient(clientX, clientY);
+            if (!group) {
+                freeSwipeState.lastGridKey = '';
+                return;
+            }
+            const row = Number.isFinite(group.userData.gridRow) ? group.userData.gridRow : 0;
+            const col = Number.isFinite(group.userData.gridCol) ? group.userData.gridCol : 0;
+            const key = gridKey(row, col);
+            if (key === freeSwipeState.lastGridKey) {
+                return;
+            }
+            freeSwipeState.lastGridKey = key;
+            queueGroupStepFlip(group, 1, 0.16);
+        }
+
+        function onPointerDown(event) {
+            updateMouseFromClientPosition(event.clientX, event.clientY);
+            if (!isFreeMode() || event.button !== 0) {
+                return;
+            }
+            freeSwipeState.pointerDown = true;
+            freeSwipeState.pointerId = event.pointerId;
+            freeSwipeState.lastGridKey = '';
+            if (renderer && renderer.domElement && typeof renderer.domElement.setPointerCapture === 'function') {
+                try {
+                    renderer.domElement.setPointerCapture(event.pointerId);
+                } catch (error) {
+                    // Ignore pointer capture errors from non-primary pointers.
+                }
+            }
+            event.preventDefault();
+            triggerFreeModeFlipAt(event.clientX, event.clientY);
+        }
+
+        function onPointerMove(event) {
+            updateMouseFromClientPosition(event.clientX, event.clientY);
+            if (!isFreeMode()) {
+                return;
+            }
+            if (!freeSwipeState.pointerDown || freeSwipeState.pointerId !== event.pointerId) {
+                return;
+            }
+            event.preventDefault();
+            triggerFreeModeFlipAt(event.clientX, event.clientY);
+        }
+
+        function onPointerUp(event) {
+            if (freeSwipeState.pointerId !== event.pointerId) {
+                return;
+            }
+            if (renderer && renderer.domElement && typeof renderer.domElement.releasePointerCapture === 'function') {
+                try {
+                    renderer.domElement.releasePointerCapture(event.pointerId);
+                } catch (error) {
+                    // Ignore release errors.
+                }
+            }
+            resetFreeSwipeState();
+        }
+
+        function onPointerCancelOrLeave(event) {
+            if (event && freeSwipeState.pointerId !== null && event.pointerId !== undefined && freeSwipeState.pointerId !== event.pointerId) {
+                return;
+            }
+            resetFreeSwipeState();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updateMusicDrivenEffects();
+
+            pixels.forEach(group => {
+                if (group.userData.isAnimating) {
+                    // 默认阻尼 0.1；春晚行波可按组覆盖
+                    const speed = clamp(group.userData.motionDamping || 0.1, 0.04, 0.25);
+                    const diff = group.userData.targetRotationX - group.rotation.x;
+
+                    if (Math.abs(diff) < 0.005) {
+                        group.rotation.x = group.userData.targetRotationX;
+                        group.userData.isAnimating = false;
+                        group.userData.motionDamping = null;
+                        const settledFace = Number.isFinite(group.userData.targetFaceIndex)
+                            ? normalizeFaceIndex(group.userData.targetFaceIndex)
+                            : normalizeFaceIndex(Math.round(
+                                (group.userData.targetRotationX - group.userData.baseRotationX) / ((Math.PI * 2) / 3)
+                            ));
+                        group.userData.faceIndex = settledFace;
+                        group.userData.targetFaceIndex = settledFace;
+                        group.userData.currentOn = settledFace !== 0;
+                        group.userData.targetOn = group.userData.currentOn;
+                    } else {
+                        group.rotation.x += diff * speed;
+                    }
+                }
+            });
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>

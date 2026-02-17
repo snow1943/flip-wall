@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 像素显示墙 - 数字与文字</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #eee;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+            z-index: 10;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h2>3D 像素显示墙</h2>
+        <p>自动轮换显示：10 到 1 倒计时，然后显示 HELLO / WORLD</p>
+    </div>
+
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- dat.GUI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+
+    <script>
+        let scene, camera, renderer;
+        let spotLight, fillLight;
+        const pixels = [];
+        const rows = 12;
+        const cols = 22;
+
+        const UNIT_SIZE = 1.0;
+        const PLATE_THICKNESS = 0.001;
+        const BEVEL_THICKNESS = 0.001;
+        const CORNER_RADIUS = 0.3;
+        const GAP_OFFSET = 0.0;
+        const PLATE_SCALE = 1.0;
+
+        const innerParams = {
+            size: 0.54,
+            length: 0.84,
+            radius: 0.05,
+            bevel: 0.0,
+            color: '#111111',
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        const config = {
+            initRotationX: Math.PI / 2,
+            initRotationY: 0.0,
+            initRotationZ: 0.0,
+            gap: 0.057,
+
+            camX: 0, camY: 0, camZ: 20,
+            viewSize: 14,
+
+            spotLightX: 5, spotLightY: 10, spotLightZ: 30,
+            spotLightIntensity: 0.8,
+            spotLightAngle: Math.PI / 4,
+            spotLightPenumbra: 0.5,
+
+            fillLightX: -5, fillLightY: 2, fillLightZ: 20,
+            fillLightIntensity: 0.4
+        };
+
+        let plateGeometry, innerGeometry;
+        let baseMaterials = [];
+        let baseInnerMaterial;
+
+        const ON_COLORS = [
+            new THREE.Color(0.2, 0.5, 0.9),
+            new THREE.Color(0.9, 0.8, 0.1),
+            new THREE.Color(0.9, 0.2, 0.4)
+        ];
+
+        const FLIP_ANGLE = (Math.PI * 2) / 3;
+        const FLIP_DURATION = 320;
+        const STAGGER_MS = 4;
+        const MAX_STAGGER = (rows * cols - 1) * STAGGER_MS;
+        const MAX_FLIPS = 2;
+
+        const ON_EMISSIVE = 0.45;
+        const OFF_EMISSIVE = 0.0;
+
+        let globalOnFaceIndex = 0;
+
+        const FONT_HEIGHT = 7;
+        const FONT_SPACING = 1;
+
+        const FONT = {
+            '0': [
+                '01110',
+                '10001',
+                '10011',
+                '10101',
+                '11001',
+                '10001',
+                '01110'
+            ],
+            '1': [
+                '00100',
+                '01100',
+                '00100',
+                '00100',
+                '00100',
+                '00100',
+                '01110'
+            ],
+            '2': [
+                '01110',
+                '10001',
+                '00001',
+                '00010',
+                '00100',
+                '01000',
+                '11111'
+            ],
+            '3': [
+                '01110',
+                '10001',
+                '00001',
+                '00110',
+                '00001',
+                '10001',
+                '01110'
+            ],
+            '4': [
+                '00010',
+                '00110',
+                '01010',
+                '10010',
+                '11111',
+                '00010',
+                '00010'
+            ],
+            '5': [
+                '11111',
+                '10000',
+                '11110',
+                '00001',
+                '00001',
+                '10001',
+                '01110'
+            ],
+            '6': [
+                '00110',
+                '01000',
+                '10000',
+                '11110',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            '7': [
+                '11111',
+                '00001',
+                '00010',
+                '00100',
+                '01000',
+                '01000',
+                '01000'
+            ],
+            '8': [
+                '01110',
+                '10001',
+                '10001',
+                '01110',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            '9': [
+                '01110',
+                '10001',
+                '10001',
+                '01111',
+                '00001',
+                '00010',
+                '01100'
+            ],
+            'A': [
+                '01110',
+                '10001',
+                '10001',
+                '11111',
+                '10001',
+                '10001',
+                '10001'
+            ],
+            'D': [
+                '11110',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '11110'
+            ],
+            'E': [
+                '11111',
+                '10000',
+                '10000',
+                '11110',
+                '10000',
+                '10000',
+                '11111'
+            ],
+            'H': [
+                '10001',
+                '10001',
+                '10001',
+                '11111',
+                '10001',
+                '10001',
+                '10001'
+            ],
+            'L': [
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '10000',
+                '11111'
+            ],
+            'O': [
+                '01110',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '10001',
+                '01110'
+            ],
+            'R': [
+                '11110',
+                '10001',
+                '10001',
+                '11110',
+                '10100',
+                '10010',
+                '10001'
+            ],
+            'W': [
+                '10001',
+                '10001',
+                '10001',
+                '10101',
+                '10101',
+                '10101',
+                '01010'
+            ],
+            ' ': [
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000',
+                '00000'
+            ]
+        };
+
+        const playlist = [
+            { type: 'static', text: '10', duration: 900 },
+            { type: 'static', text: '9', duration: 900 },
+            { type: 'static', text: '8', duration: 900 },
+            { type: 'static', text: '7', duration: 900 },
+            { type: 'static', text: '6', duration: 900 },
+            { type: 'static', text: '5', duration: 900 },
+            { type: 'static', text: '4', duration: 900 },
+            { type: 'static', text: '3', duration: 900 },
+            { type: 'static', text: '2', duration: 900 },
+            { type: 'static', text: '1', duration: 900 },
+            { type: 'scroll', text: 'HELLO', speed: 80, hold: 400, stagger: 0.08 },
+            { type: 'scroll', text: 'WORLD', speed: 80, hold: 400, stagger: 0.08 }
+        ];
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            const aspect = window.innerWidth / window.innerHeight;
+            const viewSize = config.viewSize;
+            camera = new THREE.OrthographicCamera(
+                -viewSize * aspect / 2, viewSize * aspect / 2,
+                viewSize / 2, -viewSize / 2,
+                0.1, 1000
+            );
+            camera.position.set(config.camX, config.camY, config.camZ);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            spotLight = new THREE.SpotLight(0xffffff, config.spotLightIntensity);
+            spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+            spotLight.angle = config.spotLightAngle;
+            spotLight.penumbra = config.spotLightPenumbra;
+            spotLight.decay = 1.5;
+            spotLight.distance = 100;
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 2048;
+            spotLight.shadow.mapSize.height = 2048;
+            spotLight.shadow.bias = -0.0001;
+            scene.add(spotLight);
+
+            fillLight = new THREE.DirectionalLight(0xbbaaff, config.fillLightIntensity);
+            fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+            scene.add(fillLight);
+
+            initResources();
+
+            const totalWidth = cols * (UNIT_SIZE + config.gap);
+            const totalHeight = rows * (UNIT_SIZE + config.gap);
+
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const prism = createPrismInstance();
+
+                    prism.position.x = (j * (UNIT_SIZE + config.gap)) - (totalWidth / 2) + (UNIT_SIZE / 2);
+                    prism.position.y = (i * (UNIT_SIZE + config.gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
+
+                    prism.userData.baseRotationX = config.initRotationX;
+                    prism.rotation.set(config.initRotationX, config.initRotationY, config.initRotationZ);
+                    prism.userData.targetRotationX = config.initRotationX;
+                    prism.userData.startRotationX = config.initRotationX;
+                    prism.userData.currentOn = false;
+                    prism.userData.targetOn = false;
+                    prism.userData.isAnimating = false;
+
+                    scene.add(prism);
+                    pixels.push(prism);
+                }
+            }
+
+            initGUI();
+
+            globalOnFaceIndex = 1;
+            applyGrid(renderTextToGrid('10'), true);
+            startPlaylist();
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function initGUI() {
+            const gui = new dat.GUI();
+            const folder = gui.addFolder('初始角度调整');
+
+            const updateRotations = () => {
+                pixels.forEach(p => {
+                    p.userData.baseRotationX = config.initRotationX;
+                    p.rotation.set(
+                        p.userData.baseRotationX + p.userData.faceIndex * FLIP_ANGLE,
+                        config.initRotationY,
+                        config.initRotationZ
+                    );
+                    p.userData.targetRotationX = p.userData.baseRotationX + p.userData.faceIndex * FLIP_ANGLE;
+                    p.userData.isAnimating = false;
+                });
+            };
+
+            folder.add(config, 'initRotationX', -Math.PI, Math.PI).step(0.01).name('X 轴角度').onChange(updateRotations);
+            folder.add(config, 'initRotationY', -Math.PI, Math.PI).step(0.01).name('Y 轴角度').onChange(updateRotations);
+            folder.add(config, 'gap', 0.0, 0.5).step(0.001).name('行列间距').onChange(updatePositions);
+            folder.open();
+
+            const camFolder = gui.addFolder('相机视角设置');
+            const updateCamera = () => {
+                camera.position.set(config.camX, config.camY, config.camZ);
+                camera.lookAt(0, 0, 0);
+
+                const aspect = window.innerWidth / window.innerHeight;
+                camera.left = -config.viewSize * aspect / 2;
+                camera.right = config.viewSize * aspect / 2;
+                camera.top = config.viewSize / 2;
+                camera.bottom = -config.viewSize / 2;
+                camera.updateProjectionMatrix();
+            };
+            camFolder.add(config, 'camX', -50, 50).name('位置 X').onChange(updateCamera);
+            camFolder.add(config, 'camY', -50, 50).name('位置 Y').onChange(updateCamera);
+            camFolder.add(config, 'camZ', 0, 100).name('位置 Z').onChange(updateCamera);
+            camFolder.add(config, 'viewSize', 5, 30).name('缩放 (ViewSize)').onChange(updateCamera);
+            camFolder.open();
+
+            const lightFolder = gui.addFolder('光源设置');
+            const updateLights = () => {
+                spotLight.position.set(config.spotLightX, config.spotLightY, config.spotLightZ);
+                spotLight.intensity = config.spotLightIntensity;
+                spotLight.angle = config.spotLightAngle;
+                spotLight.penumbra = config.spotLightPenumbra;
+
+                fillLight.position.set(config.fillLightX, config.fillLightY, config.fillLightZ);
+                fillLight.intensity = config.fillLightIntensity;
+            };
+
+            lightFolder.add(config, 'spotLightX', -50, 50).name('主光 X').onChange(updateLights);
+            lightFolder.add(config, 'spotLightY', -50, 50).name('主光 Y').onChange(updateLights);
+            lightFolder.add(config, 'spotLightZ', 0, 100).name('主光 Z').onChange(updateLights);
+            lightFolder.add(config, 'spotLightIntensity', 0, 2).name('主光强度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightAngle', 0, Math.PI / 2).name('光照角度').onChange(updateLights);
+            lightFolder.add(config, 'spotLightPenumbra', 0, 1).name('边缘柔化').onChange(updateLights);
+
+            lightFolder.add(config, 'fillLightX', -20, 20).name('补光 X').onChange(updateLights);
+            lightFolder.add(config, 'fillLightY', -20, 20).name('补光 Y').onChange(updateLights);
+            lightFolder.add(config, 'fillLightZ', -20, 20).name('补光 Z').onChange(updateLights);
+            lightFolder.add(config, 'fillLightIntensity', 0, 2).name('补光强度').onChange(updateLights);
+        }
+
+        function updatePositions() {
+            const gap = config.gap;
+            const totalWidth = cols * (UNIT_SIZE + gap);
+            const totalHeight = rows * (UNIT_SIZE + gap);
+
+            let index = 0;
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const prism = pixels[index++];
+                    if (prism) {
+                        prism.position.x = (j * (UNIT_SIZE + gap)) - (totalWidth / 2) + (UNIT_SIZE / 2);
+                        prism.position.y = (i * (UNIT_SIZE + gap)) - (totalHeight / 2) + (UNIT_SIZE / 2);
+                    }
+                }
+            }
+        }
+
+        function initResources() {
+            const PLATE_WIDTH = UNIT_SIZE * PLATE_SCALE;
+            plateGeometry = createRoundedPlateGeometry(
+                UNIT_SIZE,
+                PLATE_WIDTH,
+                PLATE_THICKNESS,
+                BEVEL_THICKNESS,
+                CORNER_RADIUS
+            );
+
+            innerGeometry = createInnerPrismGeometry(
+                innerParams.size,
+                innerParams.length,
+                innerParams.radius,
+                innerParams.bevel
+            );
+
+            baseMaterials = ON_COLORS.map(c => new THREE.MeshStandardMaterial({
+                color: c,
+                roughness: 0.3,
+                metalness: 0.1
+            }));
+
+            baseInnerMaterial = new THREE.MeshStandardMaterial({
+                color: innerParams.color,
+                roughness: 0.2,
+                metalness: 0.2
+            });
+        }
+
+        function createPrismInstance() {
+            const group = new THREE.Group();
+
+            const apothem = UNIT_SIZE / (2 * Math.sqrt(3));
+            const distance = apothem - PLATE_THICKNESS / 2 + GAP_OFFSET;
+            const angles = [Math.PI / 2, -Math.PI / 6, 7 * Math.PI / 6];
+
+            const plateMaterials = baseMaterials.map(m => m.clone());
+            const innerMaterial = baseInnerMaterial.clone();
+
+            for (let i = 0; i < 3; i++) {
+                const plate = new THREE.Mesh(plateGeometry, plateMaterials[i]);
+                plate.castShadow = true;
+                plate.receiveShadow = true;
+
+                const angle = angles[i];
+                plate.position.set(0, distance * Math.sin(angle), distance * Math.cos(angle));
+                plate.rotation.x = -angle;
+
+                group.add(plate);
+            }
+
+            const inner = new THREE.Mesh(innerGeometry, innerMaterial);
+            inner.rotation.y = Math.PI / 2;
+            inner.position.set(innerParams.x, innerParams.y, innerParams.z);
+            group.add(inner);
+
+            group.userData = {
+                plateMaterials,
+                innerMaterial,
+                currentOn: false,
+                targetOn: false,
+                isAnimating: false,
+                animStart: 0,
+                startRotationX: 0,
+                targetRotationX: 0,
+                rotationDelta: 0,
+                faceIndex: 0,
+                targetFace: 0,
+                baseRotationX: config.initRotationX,
+                currentColorIndex: 0,
+                targetColorIndex: 0,
+                startColorIndex: 0
+            };
+
+            applyMaterialState(group, ON_COLORS[0], 0, true);
+            return group;
+        }
+
+        function applyMaterialState(group, color, level, immediate = false) {
+            const t = Math.min(1, Math.max(0, level));
+            const emissive = OFF_EMISSIVE + (ON_EMISSIVE - OFF_EMISSIVE) * t;
+
+            for (let i = 0; i < group.userData.plateMaterials.length; i++) {
+                const material = group.userData.plateMaterials[i];
+                material.color.copy(color);
+                material.emissive.copy(material.color);
+                material.emissiveIntensity = emissive;
+                if (immediate) material.needsUpdate = true;
+            }
+
+            group.userData.innerMaterial.color.set(innerParams.color);
+            group.userData.innerMaterial.emissive.copy(group.userData.innerMaterial.color);
+            group.userData.innerMaterial.emissiveIntensity = emissive * 0.6;
+        }
+
+        function createRoundedPlateGeometry(width, height, thickness, bevel, radius) {
+            const shape = new THREE.Shape();
+            const w = width;
+            const h = height;
+            const r = radius;
+
+            const x = -w / 2;
+            const y = -h / 2;
+
+            shape.moveTo(x + r, y);
+            shape.lineTo(x + w - r, y);
+            shape.quadraticCurveTo(x + w, y, x + w, y + r);
+            shape.lineTo(x + w, y + h - r);
+            shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            shape.lineTo(x + r, y + h);
+            shape.quadraticCurveTo(x, y + h, x, y + h - r);
+            shape.lineTo(x, y + r);
+            shape.quadraticCurveTo(x, y, x + r, y);
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: thickness,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 3
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.computeBoundingBox();
+            const centerOffset = -0.5 * (geometry.boundingBox.max.z - geometry.boundingBox.min.z);
+            geometry.translate(0, 0, centerOffset);
+
+            return geometry;
+        }
+
+        function createInnerPrismGeometry(size, length, radius, bevel) {
+            const shape = new THREE.Shape();
+            const R = size;
+            const r = radius;
+
+            const angleStart = -Math.PI / 2;
+            const angleStep = Math.PI * 2 / 3;
+            const dist = R - 2 * r;
+
+            for (let i = 0; i < 3; i++) {
+                const angle = angleStart + i * angleStep;
+                const cx = dist * Math.cos(angle);
+                const cy = dist * Math.sin(angle);
+                shape.absarc(cx, cy, r, angle - Math.PI / 3, angle + Math.PI / 3, false);
+            }
+            shape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: length,
+                bevelEnabled: true,
+                bevelThickness: bevel,
+                bevelSize: bevel,
+                bevelSegments: 5
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.translate(0, 0, -length / 2);
+            return geometry;
+        }
+
+        function buildTextBitmap(text) {
+            const upper = text.toUpperCase();
+            const glyphs = [];
+            let width = 0;
+
+            for (const ch of upper) {
+                const glyph = FONT[ch] || FONT[' '];
+                const glyphWidth = glyph[0].length;
+                glyphs.push({ glyph, width: glyphWidth });
+                width += glyphWidth;
+            }
+            if (glyphs.length > 1) width += FONT_SPACING * (glyphs.length - 1);
+
+            const bitmap = Array.from({ length: FONT_HEIGHT }, () => Array(width).fill(0));
+            let offsetX = 0;
+            glyphs.forEach((g, idx) => {
+                for (let y = 0; y < FONT_HEIGHT; y++) {
+                    const row = g.glyph[y] || '00000';
+                    for (let x = 0; x < g.width; x++) {
+                        if (row[x] === '1') bitmap[y][offsetX + x] = 1;
+                    }
+                }
+                offsetX += g.width + (idx < glyphs.length - 1 ? FONT_SPACING : 0);
+            });
+
+            return { bitmap, width, height: FONT_HEIGHT };
+        }
+
+        function renderTextToGrid(text) {
+            const built = buildTextBitmap(text);
+            return scaleBitmapToGrid(built.bitmap, built.width, built.height);
+        }
+
+        function renderBitmapToGrid(bitmap, width, height, offsetX) {
+            if (height > rows) {
+                return scaleBitmapToGrid(bitmap, width, height);
+            }
+
+            const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+            const startRow = Math.floor((rows - height) / 2);
+
+            for (let row = 0; row < rows; row++) {
+                const by = row - startRow;
+                if (by < 0 || by >= height) continue;
+                for (let col = 0; col < cols; col++) {
+                    const bx = col - offsetX;
+                    if (bx >= 0 && bx < width && bitmap[by][bx]) {
+                        grid[row][col] = 1;
+                    }
+                }
+            }
+
+            return grid;
+        }
+
+        function scaleBitmapToGrid(bitmap, width, height) {
+            const scaleFactor = Math.max(width / cols, height / rows, 1);
+            const targetW = Math.min(cols, Math.max(1, Math.floor(width / scaleFactor)));
+            const targetH = Math.min(rows, Math.max(1, Math.floor(height / scaleFactor)));
+
+            const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+            const startCol = Math.floor((cols - targetW) / 2);
+            const startRow = Math.floor((rows - targetH) / 2);
+
+            for (let ty = 0; ty < targetH; ty++) {
+                const y0 = Math.floor(ty * scaleFactor);
+                const y1 = Math.min(height, Math.floor((ty + 1) * scaleFactor));
+
+                for (let tx = 0; tx < targetW; tx++) {
+                    const x0 = Math.floor(tx * scaleFactor);
+                    const x1 = Math.min(width, Math.floor((tx + 1) * scaleFactor));
+
+                    let on = 0;
+                    for (let y = y0; y < y1 && !on; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            if (bitmap[y][x]) {
+                                on = 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (on) grid[startRow + ty][startCol + tx] = 1;
+                }
+            }
+
+            return grid;
+        }
+
+        function applyGrid(grid, immediate = false, stagger = 1, advanceColor = true) {
+            if (!immediate && advanceColor) {
+                globalOnFaceIndex = (globalOnFaceIndex + 1) % 3;
+                if (globalOnFaceIndex === 0) globalOnFaceIndex = 1;
+            }
+            let maxTime = 0;
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const on = grid[row][col] === 1;
+                    const t = setPixelState(row, col, on, immediate, stagger);
+                    if (t > maxTime) maxTime = t;
+                }
+            }
+            return maxTime;
+        }
+
+        function setPixelState(row, col, on, immediate = false, stagger = 1) {
+            const mappedRow = rows - 1 - row;
+            const index = mappedRow * cols + col;
+            const group = pixels[index];
+            if (!group) return 0;
+
+            if (immediate) {
+                group.userData.currentOn = on;
+                group.userData.targetOn = on;
+                group.userData.isAnimating = false;
+                const onFace = globalOnFaceIndex === 0 ? 1 : globalOnFaceIndex;
+                const targetFace = on ? onFace : 0;
+                group.userData.faceIndex = targetFace;
+                group.userData.targetFace = targetFace;
+                group.rotation.x = group.userData.baseRotationX + targetFace * FLIP_ANGLE;
+                const colorIndex = targetFace;
+                group.userData.currentColorIndex = colorIndex;
+                group.userData.targetColorIndex = colorIndex;
+                applyMaterialState(group, ON_COLORS[colorIndex], on ? 1 : 0, true);
+                return 0;
+            }
+
+            const startOn = group.userData.currentOn;
+            const endOn = on;
+            const onFace = globalOnFaceIndex === 0 ? 1 : globalOnFaceIndex;
+            const targetFace = endOn ? onFace : 0;
+            const steps = (targetFace - group.userData.faceIndex + 3) % 3;
+
+            if (group.userData.targetOn === on && steps === 0) return 0;
+
+            group.userData.targetOn = on;
+            group.userData.targetFace = targetFace;
+            group.userData.startColorIndex = group.userData.currentColorIndex;
+            group.userData.targetColorIndex = targetFace;
+            group.userData.isAnimating = steps > 0 || startOn !== endOn;
+            group.userData.animStart = performance.now();
+            group.userData.animDelay = (row * cols + col) * STAGGER_MS * stagger;
+            group.userData.animDuration = Math.max(FLIP_DURATION, FLIP_DURATION * steps);
+            group.userData.startRotationX = group.rotation.x;
+            group.userData.rotationDelta = FLIP_ANGLE * steps;
+            group.userData.targetRotationX = group.rotation.x + group.userData.rotationDelta;
+            group.userData.startOn = startOn;
+            group.userData.endOn = endOn;
+            return group.userData.animDelay + group.userData.animDuration;
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function playItem(item) {
+            if (item.type === 'scroll') {
+                const built = buildTextBitmap(item.text);
+                const startOffset = cols;
+                const endOffset = -built.width;
+                const speed = item.speed || 80;
+                const stagger = item.stagger ?? 0.08;
+                let frameDelay = Math.max(speed, FLIP_DURATION * MAX_FLIPS + MAX_STAGGER * stagger);
+                let firstFrame = true;
+
+                for (let offset = startOffset; offset >= endOffset; offset--) {
+                    const grid = renderBitmapToGrid(built.bitmap, built.width, built.height, offset);
+                    const frameTime = applyGrid(grid, false, stagger, firstFrame);
+                    frameDelay = Math.max(speed, frameTime);
+                    firstFrame = false;
+                    await delay(frameDelay);
+                }
+
+                await delay((item.hold || 400) + frameDelay);
+                return;
+            }
+
+            const grid = renderTextToGrid(item.text);
+            const frameTime = applyGrid(grid, false, 1);
+            const total = (item.duration || 900) + frameTime;
+            await delay(total);
+        }
+
+        function startPlaylist() {
+            let idx = 0;
+            const loop = async () => {
+                while (true) {
+                    const item = playlist[idx % playlist.length];
+                    await playItem(item);
+                    idx += 1;
+                }
+            };
+            loop();
+        }
+
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const viewSize = config.viewSize;
+            camera.left = -viewSize * aspect / 2;
+            camera.right = viewSize * aspect / 2;
+            camera.top = viewSize / 2;
+            camera.bottom = -viewSize / 2;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            pixels.forEach(group => {
+                if (!group.userData.isAnimating) return;
+
+                const elapsed = now - group.userData.animStart - (group.userData.animDelay || 0);
+                if (elapsed < 0) return;
+                const duration = group.userData.animDuration || FLIP_DURATION;
+                const t = Math.min(1, elapsed / duration);
+                const ease = 1 - Math.pow(1 - t, 3);
+
+                group.rotation.x = group.userData.startRotationX + group.userData.rotationDelta * ease;
+
+                const startLevel = group.userData.startOn ? 1 : 0;
+                const endLevel = group.userData.endOn ? 1 : 0;
+                const level = startLevel + (endLevel - startLevel) * ease;
+                const startColor = ON_COLORS[group.userData.startColorIndex];
+                const endColor = ON_COLORS[group.userData.targetColorIndex];
+                const blended = startColor.clone().lerp(endColor, ease);
+                applyMaterialState(group, blended, level);
+
+                if (t >= 1) {
+                    group.rotation.x = group.userData.targetRotationX;
+                    group.userData.currentOn = group.userData.endOn;
+                    group.userData.faceIndex = group.userData.targetFace;
+                    group.userData.currentColorIndex = group.userData.targetColorIndex;
+                    group.userData.isAnimating = false;
+                    applyMaterialState(group, ON_COLORS[group.userData.currentColorIndex], group.userData.currentOn ? 1 : 0, true);
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>

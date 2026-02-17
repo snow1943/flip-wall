@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html><body><pre id="out"></pre><script>
+(function(){
+  try {
+    const raw = localStorage.getItem('flip_wall_v12_presets') || '';
+    document.getElementById('out').textContent = raw;
+  } catch (e) {
+    document.getElementById('out').textContent = 'ERROR:' + (e && e.message ? e.message : String(e));
+  }
+})();
+</script></body></html>
