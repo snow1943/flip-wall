@@ -144,6 +144,12 @@ const springWaveConfig = {
     innerDelayMs: 14,
     innerDirection: '从左到右',
     damping: 0.11,
+    musicSyncAllEffects: true,
+    musicSyncMode: '节拍优先',
+    musicSyncStrength: 0.86,
+    musicSyncMinMs: 26,
+    musicSyncMaxMs: 420,
+    musicSyncBeatPulse: 0.28,
     outerFace: 1,
     innerBaseFace: 2,
     innerFlowFace: 1,
@@ -1037,6 +1043,13 @@ function initGUI() {
     springWaveFolder.add(springWaveConfig, 'innerDelayMs', 0, 80).step(1).name('行内延迟(ms)');
     springWaveFolder.add(springWaveConfig, 'innerDirection', ['从左到右', '从右到左']).name('行内方向');
     springWaveFolder.add(springWaveConfig, 'damping', 0.04, 0.25).step(0.005).name('阻尼系数');
+    const globalSyncFolder = springWaveFolder.addFolder('全效果音乐联动');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncAllEffects').name('启用全效果联动');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncMode', ['关闭', '跟随音频能量', '节拍优先']).name('联动模式');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncStrength', 0, 1).step(0.01).name('联动强度');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncMinMs', 20, 260).step(1).name('联动最快(ms)');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncMaxMs', 60, 900).step(1).name('联动最慢(ms)');
+    globalSyncFolder.add(springWaveConfig, 'musicSyncBeatPulse', 0, 1).step(0.01).name('拍点冲击');
     const dualTrackFolder = springWaveFolder.addFolder('效果4 双轨流色');
     dualTrackFolder.add(springWaveConfig, 'outerFace', { 面1: 1, 面2: 2 }).name('外侧颜色面');
     dualTrackFolder.add(springWaveConfig, 'innerBaseFace', { 面1: 1, 面2: 2 }).name('中间基础面');
@@ -2549,8 +2562,11 @@ function queueGroupStepFlip(group, steps, damping = null) {
     return queueGroupToFace(group, nextFace, { immediate: false, damping });
 }
 
-function triggerRowFlip(row, steps) {
+function triggerRowFlip(row, steps, dampingOverride = null) {
     const cols = Math.max(1, Math.floor(config.gridCols));
+    const damping = Number.isFinite(dampingOverride)
+        ? clamp(dampingOverride, 0.04, 0.25)
+        : springWaveConfig.damping;
     for (let col = 0; col < cols; col++) {
         if (!activeMask[row] || activeMask[row][col] !== 1) {
             continue;
@@ -2559,7 +2575,7 @@ function triggerRowFlip(row, steps) {
         if (!group || group.userData.isRim) {
             continue;
         }
-        queueGroupStepFlip(group, steps, springWaveConfig.damping);
+        queueGroupStepFlip(group, steps, damping);
     }
 }
 
@@ -2577,12 +2593,15 @@ function getRowActiveColumns(row) {
     return ordered;
 }
 
-function triggerSinglePixelFlip(row, col, steps) {
+function triggerSinglePixelFlip(row, col, steps, dampingOverride = null) {
     const group = getPixelByGrid(row, col);
     if (!group || group.userData.isRim) {
         return;
     }
-    queueGroupStepFlip(group, steps, springWaveConfig.damping);
+    const damping = Number.isFinite(dampingOverride)
+        ? clamp(dampingOverride, 0.04, 0.25)
+        : springWaveConfig.damping;
+    queueGroupStepFlip(group, steps, damping);
 }
 
 function buildEqualizerBars() {
@@ -3248,10 +3267,165 @@ function getMosaicContrastFaces() {
     return { faceA, faceB };
 }
 
+function isGlobalSpringMusicSyncActive() {
+    return springWaveConfig.musicSyncAllEffects === true && isMusicSnapshotReady();
+}
+
+function getGlobalSpringSyncProfile(baseMs, baseDamping, options = {}) {
+    const base = Math.max(0, Number(baseMs) || 0);
+    const baseDamp = clamp(Number(baseDamping), 0.04, 0.25);
+    const defaultMin = clamp(Math.floor(Number(springWaveConfig.musicSyncMinMs)), 20, 1200);
+    const defaultMax = clamp(
+        Math.max(defaultMin + 1, Math.floor(Number(springWaveConfig.musicSyncMaxMs))),
+        defaultMin + 1,
+        1600
+    );
+    const minMs = clamp(
+        Number.isFinite(options.minMs) ? Math.floor(options.minMs) : defaultMin,
+        0,
+        5000
+    );
+    const maxMs = clamp(
+        Number.isFinite(options.maxMs) ? Math.floor(options.maxMs) : defaultMax,
+        Math.max(minMs + 1, 1),
+        12000
+    );
+    const syncMode = String(springWaveConfig.musicSyncMode || '关闭');
+
+    if (!isGlobalSpringMusicSyncActive() || syncMode === '关闭') {
+        const safeBaseMs = clamp(Math.round(base), minMs, maxMs);
+        return {
+            ms: safeBaseMs,
+            damping: baseDamp,
+            beatPulse: 0,
+            tempoFactor: base > 0 ? (base / Math.max(1, safeBaseMs)) : 1
+        };
+    }
+
+    const strength = clamp(Number(springWaveConfig.musicSyncStrength), 0, 1);
+    const beatPulseStrength = clamp(Number(springWaveConfig.musicSyncBeatPulse), 0, 1);
+    const energy = clamp(Number(musicDriveState.smoothedEnergy), 0, 1);
+    const flux = clamp(Math.max(0, Number(musicDriveState.energyFlux) * 8), 0, 1);
+
+    let syncedMs = base > 0 ? base : maxMs;
+    let beatPulse = 0;
+    if (syncMode === '跟随音频能量') {
+        const drive = clamp(energy * 0.66 + flux * 0.34, 0, 1);
+        syncedMs = Math.round(maxMs - (maxMs - minMs) * drive);
+    } else {
+        const beatIntervalRaw = musicDriveState.smoothedBeatIntervalMs > 0
+            ? musicDriveState.smoothedBeatIntervalMs
+            : musicDriveState.beatIntervalMs;
+        const beatInterval = clamp(Number(beatIntervalRaw), 0, 1800);
+        const beatAge = performance.now() - Number(musicDriveState.lastBeatAt || 0);
+        const subdivisionsBase = clamp(Number(options.subdivisionsBase ?? 2.0), 1.1, 4);
+        const subdivisionsEnergy = clamp(Number(options.subdivisionsEnergy ?? 0.6), 0, 2);
+        const subdivisionsMin = clamp(Number(options.subdivisionsMin ?? 1.2), 1, subdivisionsBase);
+
+        if (beatInterval >= 220) {
+            const tempoBase = clamp(beatInterval, 240, 1500);
+            const subdivisions = clamp(subdivisionsBase - energy * subdivisionsEnergy, subdivisionsMin, subdivisionsBase);
+            const pulseWindow = clamp(tempoBase * 0.44, 80, 520);
+            beatPulse = clamp(1 - beatAge / pulseWindow, 0, 1);
+            const tempoMs = tempoBase / subdivisions;
+            const pulseAdjusted = tempoMs * (1 - beatPulse * beatPulseStrength * 0.42);
+            const fluxAdjusted = pulseAdjusted * (1 - flux * 0.16);
+            syncedMs = Math.round(clamp(fluxAdjusted, minMs, maxMs));
+        } else {
+            const drive = clamp(energy * 0.44 + flux * 0.22, 0, 1);
+            syncedMs = Math.round(maxMs - (maxMs - minMs) * drive * 0.76);
+            beatPulse = clamp(flux * 0.4, 0, 1);
+        }
+    }
+
+    const safeBase = base > 0 ? base : syncedMs;
+    const mixedMs = clamp(
+        Math.round(safeBase * (1 - strength) + syncedMs * strength),
+        minMs,
+        maxMs
+    );
+    const tempoFactor = clamp(safeBase / Math.max(1, mixedMs), 0.4, 3.4);
+    const damping = clamp(baseDamp * (1 + (tempoFactor - 1) * 0.58), 0.04, 0.25);
+
+    return {
+        ms: mixedMs,
+        damping,
+        beatPulse,
+        tempoFactor
+    };
+}
+
+function getSweepMusicSyncProfile(baseDurationMs) {
+    const baseDuration = clamp(Math.floor(Number(baseDurationMs)), 220, 9000);
+    const baseDamping = clamp(Number(springWaveConfig.damping), 0.04, 0.25);
+    const syncMode = String(springWaveConfig.musicSyncMode || '关闭');
+    if (!isGlobalSpringMusicSyncActive() || syncMode === '关闭') {
+        return {
+            durationMs: baseDuration,
+            damping: baseDamping,
+            beatPulse: 0,
+            intensityBoost: 1
+        };
+    }
+
+    const strength = clamp(Number(springWaveConfig.musicSyncStrength), 0, 1);
+    const beatPulseStrength = clamp(Number(springWaveConfig.musicSyncBeatPulse), 0, 1);
+    const energy = clamp(Number(musicDriveState.smoothedEnergy), 0, 1);
+    const flux = clamp(Math.max(0, Number(musicDriveState.energyFlux) * 8), 0, 1);
+    const beatIntervalRaw = musicDriveState.smoothedBeatIntervalMs > 0
+        ? musicDriveState.smoothedBeatIntervalMs
+        : musicDriveState.beatIntervalMs;
+    const beatInterval = clamp(Number(beatIntervalRaw), 0, 2000);
+    const beatAge = performance.now() - Number(musicDriveState.lastBeatAt || 0);
+
+    const energyDuration = clamp(
+        baseDuration * (1.28 - (energy * 0.72 + flux * 0.26)),
+        220,
+        9000
+    );
+    let syncedDuration = energyDuration;
+    let beatPulse = clamp(flux * 0.42, 0, 1);
+
+    if (syncMode === '节拍优先' && beatInterval >= 220) {
+        const beatConfidence = clamp(1 - beatAge / Math.max(beatInterval * 1.6, 180), 0, 1);
+        const beatRatio = clamp(1.2 - energy * 0.22, 0.9, 1.4);
+        const beatDuration = clamp(beatInterval * beatRatio, 220, 9000);
+        syncedDuration = beatDuration * beatConfidence + energyDuration * (1 - beatConfidence);
+        const pulseWindow = clamp(beatInterval * 0.5, 90, 560);
+        beatPulse = clamp(1 - beatAge / pulseWindow, 0, 1);
+    }
+
+    const mixedDuration = clamp(
+        Math.round(baseDuration * (1 - strength) + syncedDuration * strength),
+        220,
+        9000
+    );
+    const tempoFactor = clamp(baseDuration / Math.max(1, mixedDuration), 0.4, 3.2);
+    const damping = clamp(baseDamping * (1 + (tempoFactor - 1) * 0.5), 0.04, 0.25);
+    const intensityBoost = 1 + beatPulse * beatPulseStrength * 0.5;
+
+    return {
+        durationMs: mixedDuration,
+        damping,
+        beatPulse,
+        intensityBoost
+    };
+}
+
 function getMosaicBlinkUpdateMs(baseUpdateMs) {
     const base = clamp(Math.floor(Number(baseUpdateMs)), 40, 600);
     const syncMode = String(springWaveConfig.mosaicTempoSync || '关闭');
-    if (syncMode === '关闭' || !isMusicSnapshotReady()) {
+    if (syncMode === '关闭') {
+        const globalProfile = getGlobalSpringSyncProfile(base, springWaveConfig.damping, {
+            minMs: 30,
+            maxMs: 700,
+            subdivisionsBase: 2.0,
+            subdivisionsEnergy: 0.6,
+            subdivisionsMin: 1.2
+        });
+        return clamp(Math.round(globalProfile.ms), 30, 700);
+    }
+    if (!isMusicSnapshotReady()) {
         return base;
     }
 
@@ -3632,7 +3806,7 @@ function buildTrackFlowPhases(cells) {
     };
 }
 
-function queueQuadTrackCellToFace(row, col, targetFace, colorValue) {
+function queueQuadTrackCellToFace(row, col, targetFace, colorValue, dampingOverride = null) {
     const group = getPixelByGrid(row, col);
     if (!group || group.userData.isRim) {
         return false;
@@ -3643,7 +3817,9 @@ function queueQuadTrackCellToFace(row, col, targetFace, colorValue) {
     }
     return queueGroupToFace(group, targetFace, {
         immediate: false,
-        damping: springWaveConfig.damping
+        damping: Number.isFinite(dampingOverride)
+            ? clamp(dampingOverride, 0.04, 0.25)
+            : springWaveConfig.damping
     });
 }
 
@@ -3655,6 +3831,14 @@ async function playDualTrackFlowEffect(runId) {
     const outerColor = resolveTrackColor(springWaveConfig.outerTrackColor, '#d84d2e');
     const innerBaseColor = resolveTrackColor(springWaveConfig.innerBaseColor, '#3b0f1c');
     const innerFlowColor = resolveTrackColor(springWaveConfig.innerFlowColor, '#ffb347');
+    const baseStepDelay = clamp(Math.floor(springWaveConfig.flowStepMs), 20, 420);
+    const initialSync = getGlobalSpringSyncProfile(baseStepDelay, springWaveConfig.damping, {
+        minMs: 20,
+        maxMs: 420,
+        subdivisionsBase: 2.1,
+        subdivisionsEnergy: 0.7,
+        subdivisionsMin: 1.2
+    });
 
     if (isDualTrackInstantColorMode()) {
         freezePixelsForInstantColorFlow();
@@ -3664,14 +3848,14 @@ async function playDualTrackFlowEffect(runId) {
         if (!springWaveState.running || runId !== springWaveState.runId) {
             return;
         }
-        queueQuadTrackCellToFace(cell.row, cell.col, outerFace, outerColor);
+        queueQuadTrackCellToFace(cell.row, cell.col, outerFace, outerColor, initialSync.damping);
     }
 
     for (const cell of innerTrack) {
         if (!springWaveState.running || runId !== springWaveState.runId) {
             return;
         }
-        queueQuadTrackCellToFace(cell.row, cell.col, innerBaseFace, innerBaseColor);
+        queueQuadTrackCellToFace(cell.row, cell.col, innerBaseFace, innerBaseColor, initialSync.damping);
     }
 
     if (!innerTrack.length) {
@@ -3682,7 +3866,6 @@ async function playDualTrackFlowEffect(runId) {
     const phaseByKey = flowProfile.phaseByKey;
     const phaseCount = flowProfile.phaseCount;
     const cycles = clamp(Math.floor(springWaveConfig.flowCycles), 1, 12);
-    const stepDelay = clamp(Math.floor(springWaveConfig.flowStepMs), 20, 420);
     const bandSize = clamp(Math.floor(springWaveConfig.flowBandSize), 1, 4);
     const reverse = springWaveConfig.flowDirection === '反向';
     const totalSteps = phaseCount * cycles;
@@ -3691,6 +3874,18 @@ async function playDualTrackFlowEffect(runId) {
         if (!springWaveState.running || runId !== springWaveState.runId) {
             return;
         }
+        const flowSync = getGlobalSpringSyncProfile(baseStepDelay, springWaveConfig.damping, {
+            minMs: 20,
+            maxMs: 420,
+            subdivisionsBase: 2.1,
+            subdivisionsEnergy: 0.7,
+            subdivisionsMin: 1.2
+        });
+        const dynamicBandSize = clamp(
+            Math.round(bandSize + flowSync.beatPulse * springWaveConfig.musicSyncBeatPulse * 2),
+            1,
+            6
+        );
         const head = reverse
             ? ((phaseCount - 1) - (step % phaseCount))
             : (step % phaseCount);
@@ -3700,24 +3895,29 @@ async function playDualTrackFlowEffect(runId) {
                 continue;
             }
             const distance = (phase - head + phaseCount) % phaseCount;
-            const targetFace = distance < bandSize ? innerFlowFace : innerBaseFace;
-            const targetColor = distance < bandSize ? innerFlowColor : innerBaseColor;
-            queueQuadTrackCellToFace(cell.row, cell.col, targetFace, targetColor);
+            const targetFace = distance < dynamicBandSize ? innerFlowFace : innerBaseFace;
+            const targetColor = distance < dynamicBandSize ? innerFlowColor : innerBaseColor;
+            queueQuadTrackCellToFace(cell.row, cell.col, targetFace, targetColor, flowSync.damping);
         }
-        if (stepDelay > 0 && step < totalSteps - 1) {
-            await waitMs(stepDelay);
+        if (flowSync.ms > 0 && step < totalSteps - 1) {
+            await waitMs(flowSync.ms);
         }
     }
 }
 
-async function triggerRowFlipInnerWave(row, steps, runId) {
+async function triggerRowFlipInnerWave(row, steps, runId, delayOverride = null, dampingOverride = null) {
     const cols = getRowActiveColumns(row);
-    const delay = Math.max(0, Math.floor(springWaveConfig.innerDelayMs));
+    const delay = Number.isFinite(delayOverride)
+        ? Math.max(0, Math.floor(delayOverride))
+        : Math.max(0, Math.floor(springWaveConfig.innerDelayMs));
+    const damping = Number.isFinite(dampingOverride)
+        ? clamp(dampingOverride, 0.04, 0.25)
+        : springWaveConfig.damping;
     for (let i = 0; i < cols.length; i++) {
         if (!springWaveState.running || runId !== springWaveState.runId) {
             return;
         }
-        triggerSinglePixelFlip(row, cols[i], steps);
+        triggerSinglePixelFlip(row, cols[i], steps, damping);
         if (delay > 0 && i < cols.length - 1) {
             await waitMs(delay);
         }
@@ -3728,19 +3928,47 @@ async function playSpringWaveRow(row, runId) {
     if (!springWaveState.running || runId !== springWaveState.runId) {
         return;
     }
+    const stage1Sync = getGlobalSpringSyncProfile(springWaveConfig.stagePauseMs, springWaveConfig.damping, {
+        minMs: 0,
+        maxMs: 800,
+        subdivisionsBase: 2.2,
+        subdivisionsEnergy: 0.8,
+        subdivisionsMin: 1.15
+    });
+    const innerStage1Sync = getGlobalSpringSyncProfile(springWaveConfig.innerDelayMs, stage1Sync.damping, {
+        minMs: 0,
+        maxMs: 120,
+        subdivisionsBase: 2.8,
+        subdivisionsEnergy: 1.0,
+        subdivisionsMin: 1.1
+    });
     if (springWaveConfig.effect === '效果2-行内波') {
-        await triggerRowFlipInnerWave(row, 2, runId); // 先翻两个面
+        await triggerRowFlipInnerWave(row, 2, runId, innerStage1Sync.ms, innerStage1Sync.damping); // 先翻两个面
     } else {
-        triggerRowFlip(row, 2); // 效果1：整行同步翻
+        triggerRowFlip(row, 2, stage1Sync.damping); // 效果1：整行同步翻
     }
-    await waitMs(Math.max(0, Math.floor(springWaveConfig.stagePauseMs)));
+    await waitMs(Math.max(0, Math.floor(stage1Sync.ms)));
     if (!springWaveState.running || runId !== springWaveState.runId) {
         return;
     }
+    const stage2Sync = getGlobalSpringSyncProfile(springWaveConfig.stagePauseMs, stage1Sync.damping, {
+        minMs: 0,
+        maxMs: 800,
+        subdivisionsBase: 2.1,
+        subdivisionsEnergy: 0.75,
+        subdivisionsMin: 1.1
+    });
+    const innerStage2Sync = getGlobalSpringSyncProfile(springWaveConfig.innerDelayMs, stage2Sync.damping, {
+        minMs: 0,
+        maxMs: 120,
+        subdivisionsBase: 2.7,
+        subdivisionsEnergy: 0.9,
+        subdivisionsMin: 1.1
+    });
     if (springWaveConfig.effect === '效果2-行内波') {
-        await triggerRowFlipInnerWave(row, 1, runId); // 再翻一个面
+        await triggerRowFlipInnerWave(row, 1, runId, innerStage2Sync.ms, innerStage2Sync.damping); // 再翻一个面
     } else {
-        triggerRowFlip(row, 1); // 效果1：整行同步翻
+        triggerRowFlip(row, 1, stage2Sync.damping); // 效果1：整行同步翻
     }
 }
 
@@ -3761,7 +3989,7 @@ async function playSweepLightEffect(runId) {
         height: 12
     };
 
-    const duration = Math.max(100, Math.floor(sweepLightConfig.durationMs));
+    const baseDuration = Math.max(100, Math.floor(sweepLightConfig.durationMs));
     const overscanRatio = clamp(sweepLightConfig.overscan, 0, 0.8);
     const overscanDistance = Math.max(UNIT_SIZE, bounds.height * overscanRatio);
     const topY = bounds.maxY + overscanDistance;
@@ -3780,10 +4008,15 @@ async function playSweepLightEffect(runId) {
     for (const item of sweepLights) {
         item.light.visible = true;
     }
-    const started = performance.now();
+    let progress = 0;
+    let prevAt = performance.now();
     while (springWaveState.running && runId === springWaveState.runId) {
-        const elapsed = performance.now() - started;
-        const t = clamp(elapsed / duration, 0, 1);
+        const now = performance.now();
+        const dt = Math.max(0, now - prevAt);
+        prevAt = now;
+        const sweepSync = getSweepMusicSyncProfile(baseDuration);
+        progress = clamp(progress + dt / Math.max(100, sweepSync.durationMs), 0, 1);
+        const t = progress;
         const eased = t * t * (3 - 2 * t); // smoothstep
         const y = fromY + (toY - fromY) * eased;
         const envelope = 0.25 + 0.75 * Math.sin(Math.PI * t);
@@ -3795,10 +4028,10 @@ async function playSweepLightEffect(runId) {
             const weight = 1 - edgeAttenuation * distanceNorm;
             item.light.position.set(x, y, sweepLightConfig.z);
             item.target.position.set(x, y, -4);
-            item.light.intensity = sweepLightConfig.intensity * envelope * weight;
+            item.light.intensity = sweepLightConfig.intensity * envelope * weight * sweepSync.intensityBoost;
         }
 
-        if (t >= 1) {
+        if (progress >= 1) {
             break;
         }
         await waitMs(16);
@@ -3821,7 +4054,6 @@ async function startSpringWave() {
     const runId = springWaveState.runId;
     const rowOrder = getSpringActiveRows();
     const rowTasks = [];
-    const rowDelay = Math.max(0, Math.floor(springWaveConfig.rowIntervalMs));
     if (springWaveConfig.effect !== '效果4-双轨流色') {
         clearAllTrackColorOverrides();
     }
@@ -3860,8 +4092,15 @@ async function startSpringWave() {
             break;
         }
         rowTasks.push(playSpringWaveRow(rowOrder[i], runId));
-        if (rowDelay > 0) {
-            await waitMs(rowDelay);
+        const rowSync = getGlobalSpringSyncProfile(springWaveConfig.rowIntervalMs, springWaveConfig.damping, {
+            minMs: 0,
+            maxMs: 800,
+            subdivisionsBase: 2.4,
+            subdivisionsEnergy: 0.9,
+            subdivisionsMin: 1.1
+        });
+        if (rowSync.ms > 0) {
+            await waitMs(rowSync.ms);
         }
     }
 
