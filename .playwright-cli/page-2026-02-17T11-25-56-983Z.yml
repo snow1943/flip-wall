@@ -1,0 +1,238 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e7]:
+      - img [ref=e9]
+      - generic [ref=e10]:
+        - generic [ref=e11] [cursor=pointer]: 登录
+        - generic [ref=e13] [cursor=pointer]: 下载App
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "播放" [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]:
+            - img
+        - generic [ref=e38]:
+          - generic [ref=e39]: 看郭富城、王一博春晚舞台《闪耀动起来》，听完坐不住了
+          - generic [ref=e40]:
+            - generic [ref=e41]: 872.6万次观看
+            - generic [ref=e42]: ·
+            - generic [ref=e43]: 2026-02-16
+        - generic [ref=e44]:
+          - img "om号头像" [ref=e45]
+          - generic [ref=e46]: 春晚
+          - generic [ref=e47] [cursor=pointer]:
+            - img [ref=e48]
+            - text: 关注
+        - generic [ref=e49]:
+          - generic [ref=e50]: 评论
+          - generic [ref=e52]: 我来说几句
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - generic [ref=e55]:
+                - generic [ref=e58]: 手机用户176****2627a8c0247b
+                - generic [ref=e59]:
+                  - generic [ref=e60]: "1"
+                  - img [ref=e62]
+              - generic [ref=e63]:
+                - generic [ref=e64]: 果然还得是一博，舞蹈棒棒哒！
+                - generic [ref=e66]: 15分钟前· 回复
+            - generic [ref=e67]:
+              - generic [ref=e68]:
+                - generic [ref=e71]: 手机用户166****225863ab8ae0
+                - img [ref=e74]
+              - generic [ref=e75]:
+                - generic [ref=e76]: 非粉，觉得超级棒，绝了
+                - generic [ref=e78]: 28分钟前· 回复
+            - generic [ref=e79]:
+              - generic [ref=e80]:
+                - generic [ref=e83]: 手机用户133****241932fcd91c
+                - img [ref=e86]
+              - generic [ref=e87]:
+                - generic [ref=e88]: 王一博跳太好了，郭老师宝刀不老！帅
+                - generic [ref=e90]: 41分钟前· 回复
+            - generic [ref=e91]:
+              - generic [ref=e92]:
+                - generic [ref=e95]: 爱吃火锅的英雄.
+                - generic [ref=e96]:
+                  - generic [ref=e97]: "1"
+                  - img [ref=e99]
+              - generic [ref=e100]:
+                - generic [ref=e101]: 王一博跳的太帅了，太好了！希望明天还可以继续跳舞！
+                - generic [ref=e103]: 44分钟前· 回复
+            - generic [ref=e104]:
+              - generic [ref=e105]:
+                - generic [ref=e108]: cindy
+                - img [ref=e109]
+                - generic [ref=e110]:
+                  - generic [ref=e111]: "1"
+                  - img [ref=e113]
+              - generic [ref=e114]:
+                - generic [ref=e115]: 王一博跳的很帅啊
+                - generic [ref=e117]: 1小时前· 回复
+            - generic [ref=e118]:
+              - generic [ref=e119]:
+                - generic [ref=e122]: Singsen刘
+                - img [ref=e125]
+              - generic [ref=e126]:
+                - generic [ref=e127]: 气息好稳啊！
+                - generic [ref=e129]: 2小时前· 回复
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e134]: lucky🍀01646b0f
+                - img [ref=e137]
+              - generic [ref=e138]:
+                - generic [ref=e139]: 开场地板都划出印了
+                - generic [ref=e141]: 2小时前· 回复
+            - generic [ref=e142]:
+              - generic [ref=e143]:
+                - generic [ref=e146]: 咕噜猫
+                - generic [ref=e147]:
+                  - generic [ref=e148]: "2"
+                  - img [ref=e150]
+              - generic [ref=e151]:
+                - generic [ref=e152]: 托央视的福，终于看到王一博跳舞了！
+                - generic [ref=e154]: 2小时前· 回复
+            - generic [ref=e155]:
+              - generic [ref=e156]:
+                - generic [ref=e159]: 風一樣的男子c792ba10
+                - img [ref=e162]
+              - generic [ref=e163]:
+                - generic [ref=e164]: 太炸裂了，简直了
+                - generic [ref=e166]: 2小时前· 回复
+            - generic [ref=e167]:
+              - generic [ref=e168]:
+                - generic [ref=e171]: 呀拉索1d170d84
+                - img [ref=e174]
+              - generic [ref=e175]:
+                - generic [ref=e176]: 天王跳不动了
+                - generic [ref=e178]: 2小时前· 回复
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - generic [ref=e183]: 周静3551ebb7
+                - generic [ref=e184]:
+                  - generic [ref=e185]: "1"
+                  - img [ref=e187]
+              - generic [ref=e188]:
+                - generic [ref=e189]: 六十岁才值得喝彩👏
+                - generic [ref=e191]: 3小时前· 回复
+            - generic [ref=e192]:
+              - generic [ref=e193]:
+                - generic [ref=e196]: 宣蒋会（周末到河北）
+                - generic [ref=e197]:
+                  - generic [ref=e198]: "1"
+                  - img [ref=e200]
+              - generic [ref=e201]:
+                - generic [ref=e202]: 实力展示，骐骥驰骋
+                - generic [ref=e204]: 3小时前· 回复
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e209]: 央视频网友8318
+                - generic [ref=e210]:
+                  - generic [ref=e211]: "2"
+                  - img [ref=e213]
+              - generic [ref=e214]:
+                - generic [ref=e215]: 王一博帅炸了
+                - generic [ref=e217]: 3小时前· 回复
+            - generic [ref=e218]:
+              - generic [ref=e219]:
+                - generic [ref=e222]: 手机用户138****12509661a136
+                - generic [ref=e223]:
+                  - generic [ref=e224]: "2"
+                  - img [ref=e226]
+              - generic [ref=e227]:
+                - generic [ref=e228]: 王一博唱跳太厉害了，期待明年春晚的舞台
+                - generic [ref=e230]: 3小时前· 回复
+            - generic [ref=e231]:
+              - generic [ref=e232]:
+                - generic [ref=e235]: 蔚蓝
+                - generic [ref=e236]:
+                  - generic [ref=e237]: "1"
+                  - img [ref=e239]
+              - generic [ref=e240]:
+                - generic [ref=e241]: 郭富城宝刀未老
+                - generic [ref=e243]: 3小时前· 回复
+            - generic [ref=e244]:
+              - generic [ref=e245]:
+                - generic [ref=e248]: 花非花78e95691
+                - img [ref=e251]
+              - generic [ref=e252]:
+                - generic [ref=e253]: 王一博棒棒哒棒棒哒
+                - generic [ref=e255]: 3小时前· 回复
+            - generic [ref=e256]:
+              - generic [ref=e257]:
+                - generic [ref=e260]: 陆妈d4293649
+                - img [ref=e263]
+              - generic [ref=e264]:
+                - generic [ref=e265]: 一博优秀！
+                - generic [ref=e267]: 4小时前· 回复
+            - generic [ref=e268]:
+              - generic [ref=e269]:
+                - generic [ref=e272]: 小秋ffad5283
+                - img [ref=e275]
+              - generic [ref=e276]:
+                - generic [ref=e277]: 是真的。
+                - generic [ref=e279]: 5小时前· 回复
+            - generic [ref=e280]:
+              - generic [ref=e281]:
+                - generic [ref=e284]: 欧瑞莲～马亚蒂
+                - img [ref=e287]
+              - generic [ref=e288]:
+                - generic [ref=e289]: 看了无数遍
+                - generic [ref=e291]: 5小时前· 回复
+            - generic [ref=e292]:
+              - generic [ref=e293]:
+                - generic [ref=e296]: SEERbac3b568
+                - img [ref=e299]
+              - generic [ref=e300]:
+                - generic [ref=e301]: 好看
+                - generic [ref=e303]: 5小时前· 回复
+            - img [ref=e305]
+      - generic [ref=e307]:
+        - generic [ref=e308]:
+          - generic [ref=e310] [cursor=pointer]: 选集
+          - generic [ref=e314]:
+            - generic [ref=e319] [cursor=pointer]: 春晚热烈开场，新年祝福速来查收！
+            - generic [ref=e324] [cursor=pointer]: 春晚舞台一片盎然春意，用一首《立春》开启春天 ！
+            - generic [ref=e329] [cursor=pointer]: 陈小春、言承旭、罗嘉豪、易烊千玺点赞中国智造！
+            - generic [ref=e334] [cursor=pointer]: 《贺花神》共贺新春，这才是中式浪漫的顶级打开方式！
+            - generic [ref=e339] [cursor=pointer]: 看郭富城、王一博春晚舞台《闪耀动起来》，听完坐不住了
+            - generic [ref=e344] [cursor=pointer]: 来听周深和孩子们用歌声讲述神马“吉量”的故事
+            - generic [ref=e349] [cursor=pointer]: 快来跟着凤凰传奇的歌声，一起晒生活晒希望!
+            - generic [ref=e354] [cursor=pointer]: 如果有人能读懂你的心声，恭喜你也拥有属于你的人间共鸣
+            - generic [ref=e359] [cursor=pointer]: 听乌日娜和阿如那的《奔腾的海骝马》，愿我们心有旷野，不畏风雪！
+            - generic [ref=e364] [cursor=pointer]: 跟着梁家辉、刘涛、张新成一起挥走烦恼，迎来好运！
+            - generic [ref=e369] [cursor=pointer]: 邓超、迟蓬深情演绎的《妈妈有座电影院》令人动容
+            - generic [ref=e374] [cursor=pointer]: 《宝岛恋歌》唱响两岸一家亲，勾连起两岸同胞的共同记忆！
+            - generic [ref=e379] [cursor=pointer]: 所有的相逢都是彼此的光，王菲《你我经历的一刻》献给每一次珍贵的相逢
+            - generic [ref=e384] [cursor=pointer]: 愿你我都能守住那份少年意气，心起狂澜过千帆！
+            - generic [ref=e389] [cursor=pointer]: 老中青幼同台共唱定军山，戏曲百花齐放，春晖满梨园
+            - generic [ref=e394] [cursor=pointer]: 王铮亮、汪苏泷、李现《每道光》闪耀春晚舞台，致敬三百六十行
+            - generic [ref=e399] [cursor=pointer]: 听《小家年年》，愿年年新气象，越过越兴旺！
+            - generic [ref=e404] [cursor=pointer]: 日子从没催着谁长大，攥紧你的宝剑和童话！快来听任素汐和毛不易带来的《别来无恙》
+            - generic [ref=e409] [cursor=pointer]: 人生不免有遗憾，但岁月留下的美好都会被藏在心里，留在梦底
+            - generic [ref=e414] [cursor=pointer]: 跟着王安宇、黄子弘凡、范丞丞、胡先煦一起活力唱跳！
+            - generic [ref=e419] [cursor=pointer]: 致敬中国军人，《战位有我在》唱出中国军人底气担当
+            - generic [ref=e424] [cursor=pointer]: 新的一年愿你我心有所悦、业有所成，共赴锦绣新程！
+            - generic [ref=e429] [cursor=pointer]: 串门指南快来查收！今年串门不发愁！
+            - generic [ref=e434] [cursor=pointer]: 张杰把国画中的马唱活了，快来听《驭风歌》！
+            - generic [ref=e439] [cursor=pointer]: 致爱组曲用世界语言诉说最美爱意！
+            - generic [ref=e444] [cursor=pointer]: 不同唱法演绎《恭喜恭喜》，会迸发出怎样的新春火花？
+            - generic [ref=e449] [cursor=pointer]: 天籁童声唱响经典，耳目一新又暖心治愈，愿今宵的感动与欢乐送至千家万户！
+        - generic [ref=e451] [cursor=pointer]: 相关推荐
+        - generic [ref=e453]:
+          - generic [ref=e457] [cursor=pointer]: 2025年中央广播电视总台春节联欢晚会
+          - generic [ref=e461] [cursor=pointer]: 2025年中央广播电视总台春节联欢晚会（竖屏版）
+          - generic [ref=e465] [cursor=pointer]: 2024年中央广播电视总台春节联欢晚会
+          - generic [ref=e469] [cursor=pointer]: 2023年中央广播电视总台春节联欢晚会
+          - generic [ref=e473] [cursor=pointer]: 2022年中央广播电视总台春节联欢晚会
+          - generic [ref=e477] [cursor=pointer]: 2021年中央广播电视总台春节联欢晚会
+    - generic [ref=e479]:
+      - paragraph [ref=e480]:
+        - text: 中央广播电视总台 央视频
+        - link "版权所有" [ref=e481] [cursor=pointer]:
+          - /url: //www.beian.miit.gov.cn
+      - paragraph [ref=e482]:
+        - link "京ICP备19035210号-1" [ref=e483] [cursor=pointer]:
+          - /url: //www.beian.miit.gov.cn
+        - link "京公网安备11010502038964号" [ref=e485] [cursor=pointer]:
+          - /url: //www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010502038964
+  - text: 

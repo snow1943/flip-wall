@@ -27,6 +27,7 @@
   - 页面入口：`index.html`
   - 样式：`styles/main.css`
   - 主逻辑：`src/main.js`
+  - 设置面板：`src/ui/settingsPanel.js`
   - 配置模块：
     - `src/config/colorPresets.js`
     - `src/config/springLayout.js`

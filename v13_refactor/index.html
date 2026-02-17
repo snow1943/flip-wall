@@ -9,6 +9,40 @@
 </head>
 
 <body>
+    <div id="experience-ui">
+        <aside id="quick-switch-panel" aria-label="快捷配色和动画切换">
+            <section class="quick-switch-group" aria-label="快捷配色">
+                <h2 class="quick-switch-title">快捷配色</h2>
+                <div id="quick-color-list" class="quick-switch-list"></div>
+            </section>
+            <section class="quick-switch-group" aria-label="快捷动画">
+                <h2 class="quick-switch-title">快捷动画</h2>
+                <div id="quick-effect-list" class="quick-switch-list"></div>
+            </section>
+        </aside>
+        <div class="hero-panel">
+            <h1 id="slogan">Flip The Beat, Light The Wall</h1>
+            <button id="upload-music-btn" type="button">上传歌曲文件</button>
+            <p class="upload-hint">支持 MP3 / M4A / WAV / FLAC / AAC / OGG / OPUS</p>
+            <div id="preset-music-list"></div>
+            <p id="experience-status">请选择一首音乐开始编排</p>
+        </div>
+        <div id="lyrics-overlay" aria-live="polite" aria-atomic="true">
+            <p id="lyric-main"></p>
+            <p id="lyric-next"></p>
+        </div>
+        <div id="music-transport" aria-label="音乐播放控制">
+            <button id="transport-play-toggle" type="button">播放</button>
+            <div id="transport-track-wrap">
+                <input id="transport-seek" type="range" min="0" max="1000" step="1" value="0" />
+                <div id="transport-time">
+                    <span id="transport-current">00:00</span>
+                    <span>/</span>
+                    <span id="transport-duration">00:00</span>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="ui">
         <h2>3D 像素翻转墙 v13 (基于 v12 重构)</h2>
         <p>左键旋转 | 右键平移 | 滚轮缩放</p>
@@ -17,8 +51,13 @@
         <p id="music-hint">音乐驱动：未加载音源</p>
     </div>
     <div id="gui-container"></div>
-    <button id="settings-toggle" type="button">收起设置</button>
-    <input id="music-file-input" type="file" accept="audio/*,video/*" style="display:none" />
+    <button id="settings-toggle" type="button">调试设置</button>
+    <input
+        id="music-file-input"
+        type="file"
+        accept=".mp3,.m4a,.wav,.flac,.aac,.ogg,.opus,audio/*"
+        style="display:none"
+    />
 
     <script src="../vendor/three-r128.min.js"></script>
     <script src="../vendor/OrbitControls-r128.js"></script>
@@ -32,6 +71,7 @@
     <script src="./src/config/colorPresets.js"></script>
     <script src="./src/config/springLayout.js"></script>
     <script src="./src/config/pixelFont.js"></script>
+    <script src="./src/ui/settingsPanel.js"></script>
     <script src="./src/main.js"></script>
 </body>
 
