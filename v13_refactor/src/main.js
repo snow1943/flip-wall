@@ -102,6 +102,8 @@ const PRESET_STORAGE_KEY = 'flip_wall_v13_presets';
 const MUSIC_COLOR_PRESET_PRIORITY = ['春节纯洁红', '翡翠鎏金', '暮色玫瑰铜', '钛蓝冷光'];
 const DISALLOWED_GRAY_THEME_PATTERN = /(金属灰|灰色金属|墨黑铬面|chrome|metal\s*gray|grey|silver|黑白|灰)/i;
 const WAVE_EFFECTS = ['效果1-行波', '效果2-行内波', '效果3-扫光', '效果4-双轨流色', '效果5-柱形均衡波', '效果6-矩形闪烁块'];
+const DUAL_TRACK_FLOW_MODE_FLIP = '翻转流动';
+const DUAL_TRACK_FLOW_MODE_COLOR_ONLY = '颜色流动(不翻转)';
 const AUTO_EFFECT_RECENT_WINDOW = 8;
 const AUTO_EFFECT_TARGET_SHARE = {
     '效果1-行波': 0.16,
@@ -189,7 +191,7 @@ const springWaveConfig = {
     outerFace: 1,
     innerBaseFace: 2,
     innerFlowFace: 1,
-    flowRenderMode: '翻转流动',
+    flowRenderMode: DUAL_TRACK_FLOW_MODE_FLIP,
     outerTrackColor: '#d84d2e',
     innerBaseColor: '#3b0f1c',
     innerFlowColor: '#ffb347',
@@ -2830,7 +2832,7 @@ function chooseNextEffectByMusic(metrics, now) {
     const bpmNorm = metrics.bpm > 0 ? clamp((metrics.bpm - 70) / 90, 0, 1) : 0.45;
 
     const scores = {
-        '效果1-行波': (1 - bpmNorm) * 0.42 + (mid * 0.3 + energy * 0.18),
+        '效果1-行波': (1 - bpmNorm) * 0.7 + (mid * 0.5 + energy * 0.26),
         '效果2-行内波': bpmNorm * 0.6 + (mid * 0.46 + high * 0.36 + flux * 0.24),
         '效果3-扫光': low * 0.86 + flux * 0.55 + bpmNorm * 0.26,
         '效果4-双轨流色': mid * 0.78 + (1 - Math.abs(low - high)) * 0.48 + energy * 0.24,
@@ -2853,10 +2855,10 @@ function chooseNextEffectByMusic(metrics, now) {
         }
         let score = scores[effect] || 0;
         if (recent.has(effect)) {
-            score -= effect === '效果1-行波' ? 0.42 : 0.3;
+            score -= effect === '效果1-行波' ? 0.32 : 0.3;
         }
         if (effect === lastEffect) {
-            score -= effect === '效果1-行波' ? 0.26 : 0.2;
+            score -= 0.2;
         }
         if (recentHistory.length > 0) {
             const share = (usageCount[effect] || 0) / recentHistory.length;
@@ -2864,7 +2866,7 @@ function chooseNextEffectByMusic(metrics, now) {
             const overflow = Math.max(0, share - targetShare);
             const underflow = Math.max(0, targetShare - share);
             if (overflow > 0) {
-                score -= overflow * (effect === '效果1-行波' ? 2.1 : 1.35);
+                score -= overflow * (effect === '效果1-行波' ? 1.4 : 1.35);
             } else if (underflow > 0) {
                 score += underflow * 0.22;
             }
@@ -2906,7 +2908,7 @@ function tuneEffectWithMusic(effect, metrics) {
         sweepLightConfig.xOffset = clamp((high - low) * 8, -8, 8);
         updateSweepLightParams();
     } else if (effect === '效果4-双轨流色') {
-        springWaveConfig.flowRenderMode = '翻转流动';
+        springWaveConfig.flowRenderMode = DUAL_TRACK_FLOW_MODE_FLIP;
         springWaveConfig.flowStepMs = clamp(Math.round(beatMs * (0.24 + (1 - energy) * 0.1)), 30, 220);
         springWaveConfig.flowCycles = clamp(Math.round(2 + energy * 6), 2, 9);
         springWaveConfig.flowBandSize = clamp(Math.round(1 + flux * 3), 1, 4);
@@ -3083,6 +3085,7 @@ async function startMusicExperience(trackName = '') {
     experienceState.cameraTarget.fov = config.camFov;
     experienceState.active = true;
     experienceState.autoOrchestration = true;
+    springWaveConfig.flowRenderMode = DUAL_TRACK_FLOW_MODE_FLIP;
     experienceState.currentEffect = '';
     experienceState.startedAt = performance.now();
     experienceState.nextEffectSwitchAt = 0;
@@ -3110,6 +3113,12 @@ async function startMusicExperience(trackName = '') {
 function updateMusicOrchestration(now) {
     if (!experienceState.autoOrchestration || !musicDriveState.running) {
         return;
+    }
+    if (springWaveConfig.flowRenderMode !== DUAL_TRACK_FLOW_MODE_FLIP) {
+        springWaveConfig.flowRenderMode = DUAL_TRACK_FLOW_MODE_FLIP;
+        if (guiPanel) {
+            updateGuiFolderDisplay(guiPanel);
+        }
     }
     const audio = musicDriveState.audioEl;
     if (!audio || audio.paused) {
@@ -3340,7 +3349,13 @@ function initGUI() {
     dualTrackFolder.addColor(springWaveConfig, 'outerTrackColor').name('外轨颜色');
     dualTrackFolder.addColor(springWaveConfig, 'innerBaseColor').name('中间基础色');
     dualTrackFolder.addColor(springWaveConfig, 'innerFlowColor').name('中间流动色');
-    dualTrackFolder.add(springWaveConfig, 'flowRenderMode', ['翻转流动', '颜色流动(不翻转)']).name('呈现方式');
+    dualTrackFolder.add(springWaveConfig, 'flowRenderMode', [DUAL_TRACK_FLOW_MODE_FLIP, DUAL_TRACK_FLOW_MODE_COLOR_ONLY]).name('呈现方式').onChange((value) => {
+        if (experienceState.autoOrchestration && value === DUAL_TRACK_FLOW_MODE_COLOR_ONLY) {
+            springWaveConfig.flowRenderMode = DUAL_TRACK_FLOW_MODE_FLIP;
+            updateGuiFolderDisplay(guiPanel);
+            updateExperienceStatus('自动编排已禁用“颜色流动(不翻转)”，已切回翻转流动');
+        }
+    });
     dualTrackFolder.add(springWaveConfig, 'flowDirection', ['正向', '反向']).name('流动方向');
     dualTrackFolder.add(springWaveConfig, 'flowStepMs', 20, 420).step(5).name('流动步进(ms)');
     dualTrackFolder.add(springWaveConfig, 'flowCycles', 1, 12).step(1).name('流动循环');
@@ -5900,7 +5915,10 @@ function normalizeWaveOnFace(face, fallback = 1) {
 }
 
 function isDualTrackInstantColorMode() {
-    return springWaveConfig.flowRenderMode === '颜色流动(不翻转)';
+    if (experienceState.autoOrchestration) {
+        return false;
+    }
+    return springWaveConfig.flowRenderMode === DUAL_TRACK_FLOW_MODE_COLOR_ONLY;
 }
 
 function compareCellsByPosition(a, b) {
