@@ -523,6 +523,18 @@ function updateModeHint() {
     }
 }
 
+function updateHomepageUiVisibility() {
+    const shouldHideHomepageOverlay = isDisplayMode();
+    const heroPanel = document.querySelector('#experience-ui .hero-panel');
+    const quickSwitchPanel = document.getElementById('quick-switch-panel');
+    if (heroPanel) {
+        heroPanel.style.display = shouldHideHomepageOverlay ? 'none' : '';
+    }
+    if (quickSwitchPanel) {
+        quickSwitchPanel.style.display = shouldHideHomepageOverlay ? 'none' : '';
+    }
+}
+
 function refreshModeUiState() {
     if (guiRefs.playbackFolder && guiRefs.playbackFolder.domElement) {
         guiRefs.playbackFolder.domElement.style.display = isDisplayMode() ? '' : 'none';
@@ -544,6 +556,7 @@ function refreshModeUiState() {
     }
     isCameraInteracting = false;
     updateModeHint();
+    updateHomepageUiVisibility();
 }
 
 function getSpringRecommendedGrid() {
